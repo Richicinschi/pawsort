@@ -6,7 +6,7 @@ from typing import Callable
 import httpx
 from PIL import Image
 
-from ai_server.logic import format_result
+from ai_server.logic import decide, format_result
 
 
 def process_one(client: httpx.Client, predict: Callable[[Image.Image], float]) -> bool:
@@ -31,12 +31,16 @@ def process_one(client: httpx.Client, predict: Callable[[Image.Image], float]) -
 
 
 def main() -> None:
-    from ai_server.model import load_model, predict_dog_probability, preprocess
+    from ai_server import detector
+    from ai_server.model import crop_to_box, load_model, predict_scores, preprocess
 
-    model = load_model(os.environ.get("PAWSORT_MODEL", "models/pawsort_head.pt"))
+    finder = detector.load()
+    model, labels = load_model(os.environ.get("PAWSORT_MODEL", "models/pawsort_wildlife.pt"), "models/labels.json")
 
-    def predict(image: Image.Image) -> float:
-        return predict_dog_probability(model, preprocess(image))
+    def predict(image: Image.Image) -> dict[str, float]:
+        def classify(box: list[float]) -> dict[str, float]:
+            return predict_scores(model, labels, preprocess(crop_to_box(image, box)))
+        return decide(detector.find(finder, image), classify)
 
     base = os.environ.get("PAWSORT_ORCH", "http://127.0.0.1:8001")
     with httpx.Client(base_url=base, timeout=10) as client:

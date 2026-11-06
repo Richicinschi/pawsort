@@ -7,6 +7,10 @@ from pydantic import BaseModel
 from orchestrator import db
 
 
+LABELS = {"empty", "person", "badger", "bird", "bobcat", "car", "cat", "cow", "coyote", "deer", "dog", "fox", "lizard",
+          "mountain_lion", "opossum", "rabbit", "raccoon", "rodent", "skunk", "squirrel"}
+
+
 class NewJob(BaseModel):
     image_path: str
 
@@ -54,9 +58,9 @@ def create_app(db_path: str) -> FastAPI:
 
     @app.post("/jobs/{job_id}/result")
     def result(job_id: str, body: JobResult):
-        if body.error is None and (body.label not in ("cat", "dog") or body.probability is None
+        if body.error is None and (body.label not in LABELS or body.probability is None
                                    or body.needs_review is None):
-            raise HTTPException(422, "label must be cat or dog, with probability and needs_review")
+            raise HTTPException(422, "label must be a known label, with probability and needs_review")
         conn = open_db()
         try:
             if body.error is not None:
