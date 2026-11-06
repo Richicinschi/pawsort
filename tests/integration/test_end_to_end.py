@@ -1,9 +1,15 @@
+import os
+
 import pytest
+from fastapi.testclient import TestClient
 
 from ai_server import detector
 from ai_server.logic import decide
 from ai_server.model import crop_to_box, load_model, predict_scores, preprocess
 from ai_server.worker import process_one
+from interface.app import create_app
+
+DATA = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 
 @pytest.fixture(scope="module")
@@ -23,3 +29,16 @@ def test_real_photo_through_both_models(orch_client, copy_photo, predict, photo,
     job_id = orch_client.post("/jobs", json={"image_path": copy_photo(photo)}).json()["id"]
     process_one(orch_client, predict)
     assert orch_client.get(f"/jobs/{job_id}").json()["label"] == label
+
+
+def test_upload_on_the_website_to_answer_on_the_page(orch_client, tmp_path, predict):
+    ui = TestClient(create_app(orch_client, str(tmp_path / "uploads")))
+    with open(os.path.join(DATA, "bobcat_1.jpg"), "rb") as f:
+        r = ui.post("/upload", data={"site_code": "A12"}, files=[("files", ("bobcat_1.jpg", f.read()))])
+    job_id = r.json()["photos"][0]["job_id"]
+
+    assert process_one(orch_client, predict) is True
+
+    answer = ui.get(f"/result/{job_id}").json()
+    assert (answer["status"], answer["label"]) == ("done", "bobcat")
+    assert os.listdir(tmp_path / "uploads") == []
