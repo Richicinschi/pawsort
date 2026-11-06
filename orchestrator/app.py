@@ -13,6 +13,7 @@ LABELS = {"empty", "person", "badger", "bird", "bobcat", "car", "cat", "cow", "c
 
 class NewJob(BaseModel):
     image_path: str
+    site_code: str | None = None
 
 
 class JobResult(BaseModel):
@@ -32,7 +33,7 @@ def create_app(db_path: str) -> FastAPI:
     def new_job(body: NewJob):
         conn = open_db()
         try:
-            return {"id": db.create_job(conn, body.image_path)}
+            return {"id": db.create_job(conn, body.image_path, body.site_code)}
         finally:
             conn.close()
 

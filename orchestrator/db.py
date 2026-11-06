@@ -24,15 +24,15 @@ def connect(path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute(
         "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, image_path TEXT NOT NULL, status TEXT NOT NULL, "
-        "label TEXT, probability REAL, needs_review INTEGER, error TEXT, created_at TEXT NOT NULL, "
+        "label TEXT, probability REAL, needs_review INTEGER, error TEXT, site_code TEXT, created_at TEXT NOT NULL, "
         "updated_at TEXT NOT NULL)")
     return conn
 
 
-def create_job(conn: sqlite3.Connection, image_path: str) -> str:
+def create_job(conn: sqlite3.Connection, image_path: str, site_code: str | None = None) -> str:
     job_id, now = str(uuid.uuid4()), _now()
-    conn.execute("INSERT INTO jobs (id, image_path, status, created_at, updated_at) VALUES (?, ?, 'new', ?, ?)",
-                 (job_id, image_path, now, now))
+    conn.execute("INSERT INTO jobs (id, image_path, site_code, status, created_at, updated_at) "
+                 "VALUES (?, ?, ?, 'new', ?, ?)", (job_id, image_path, site_code, now, now))
     return job_id
 
 
