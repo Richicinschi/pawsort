@@ -52,3 +52,29 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(404, "Unknown job")
         return job
 
+    @app.post("/jobs/{job_id}/result")
+    def result(job_id: str, body: JobResult):
+        if body.error is None and (body.label not in ("cat", "dog") or body.probability is None
+                                   or body.needs_review is None):
+            raise HTTPException(422, "label must be cat or dog, with probability and needs_review")
+        conn = open_db()
+        try:
+            if body.error is not None:
+                db.set_failed(conn, job_id, body.error)
+            else:
+                db.set_result(conn, job_id, body.label, body.probability, body.needs_review)
+            return db.get_job(conn, job_id)
+        except KeyError:
+            raise HTTPException(404, "Unknown job")
+        except db.InvalidTransition as exc:
+            raise HTTPException(409, str(exc))
+        finally:
+            conn.close()
+
+    return app
+
+
+def build_app() -> FastAPI:
+    path = os.environ.get("PAWSORT_DB", "data/pawsort.db")
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    return create_app(path)
