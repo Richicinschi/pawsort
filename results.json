@@ -1,153 +1,294 @@
 {
-  "volume_raw": {
-    "files": 25002,
-    "per_class": {
-      "Cat": 12501,
-      "Dog": 12501
-    },
-    "megabytes": 866.2
-  },
-  "variety": {
-    "colour_modes": {
-      "RGB": 24931,
-      "P": 57,
-      "L": 5,
-      "RGBA": 2,
-      "CMYK": 3
-    },
-    "formats": {
-      "JPEG": 24769,
-      "BMP": 173,
-      "GIF": 51,
-      "PSD": 1,
-      "PNG": 4
-    },
-    "width": {
-      "min": 4,
-      "median": 448,
-      "max": 500
-    },
-    "height": {
-      "min": 4,
-      "median": 375,
-      "max": 500
-    },
-    "share_not_rgb": 0.0027
-  },
-  "veracity": {
-    "removed_unreadable_or_non_jpg": {
-      "Cat:empty": 1,
-      "Cat:not_jpg": 1,
-      "Dog:empty": 1,
-      "Dog:not_jpg": 1
-    },
-    "exact_duplicates_removed": 30,
-    "clean_images": 24968,
-    "clean_per_class": {
-      "Cat": 12482,
-      "Dog": 12486
-    }
-  },
-  "scan_seconds": 64.0,
-  "split": {
-    "train": {
-      "n": 4200,
-      "dog_share": 0.499
-    },
-    "dev": {
-      "n": 900,
-      "dog_share": 0.482
-    },
-    "test": {
-      "n": 900,
-      "dog_share": 0.522
-    }
-  },
-  "baseline_logreg_pixels": {
-    "input": "32x32 grayscale pixels",
-    "train_seconds": 0.41,
-    "iterations": 129,
-    "test": {
-      "accuracy": 0.5478,
-      "precision": 0.5702,
-      "recall": 0.5447,
-      "f1": 0.5571,
-      "roc_auc": 0.5523,
-      "confusion": {
-        "tn": 237,
-        "fp": 193,
-        "fn": 214,
-        "tp": 256
-      }
-    }
-  },
-  "mobilenet_transfer": {
-    "backbone": "MobileNetV3-Small, ImageNet weights, frozen",
-    "input": "160x160 RGB",
-    "head": "Linear(576,128) -> Hardswish -> Dropout(0.2) -> Linear(128,1)",
-    "optimiser": "Adam lr=1e-3, batch 64, BCE loss",
-    "early_stopping": "patience 3 on dev accuracy",
-    "epochs_run": 8,
-    "best_epoch": 5,
-    "history": [
-      {
-        "epoch": 1,
-        "train_loss": 0.2402,
-        "dev_acc": 0.9456
-      },
-      {
-        "epoch": 2,
-        "train_loss": 0.1431,
-        "dev_acc": 0.9411
-      },
-      {
-        "epoch": 3,
-        "train_loss": 0.1347,
-        "dev_acc": 0.9233
-      },
-      {
-        "epoch": 4,
-        "train_loss": 0.1176,
-        "dev_acc": 0.9489
-      },
-      {
-        "epoch": 5,
-        "train_loss": 0.1124,
-        "dev_acc": 0.95
-      },
-      {
-        "epoch": 6,
-        "train_loss": 0.1029,
-        "dev_acc": 0.9478
-      },
-      {
-        "epoch": 7,
-        "train_loss": 0.0963,
-        "dev_acc": 0.95
-      },
-      {
-        "epoch": 8,
-        "train_loss": 0.0985,
-        "dev_acc": 0.94
-      }
+  "dataset": {
+    "photos": 243100,
+    "labels": 22,
+    "archive_gb": 112.54,
+    "locations": 140,
+    "sequences": 181008,
+    "two_or_more_labels": 77,
+    "no_label": 0,
+    "label_counts": [
+      [
+        "empty",
+        125745
+      ],
+      [
+        "opossum",
+        16633
+      ],
+      [
+        "coyote",
+        16342
+      ],
+      [
+        "rabbit",
+        12314
+      ],
+      [
+        "deer",
+        12191
+      ],
+      [
+        "raccoon",
+        10981
+      ],
+      [
+        "bird",
+        9521
+      ],
+      [
+        "bobcat",
+        7916
+      ],
+      [
+        "cat",
+        5167
+      ],
+      [
+        "car",
+        4717
+      ],
+      [
+        "squirrel",
+        4432
+      ],
+      [
+        "rodent",
+        4270
+      ],
+      [
+        "dog",
+        4195
+      ],
+      [
+        "cow",
+        3626
+      ],
+      [
+        "fox",
+        2574
+      ],
+      [
+        "skunk",
+        1892
+      ],
+      [
+        "lizard",
+        309
+      ],
+      [
+        "mountain_lion",
+        145
+      ],
+      [
+        "badger",
+        42
+      ],
+      [
+        "insect",
+        6
+      ],
+      [
+        "bat",
+        3
+      ],
+      [
+        "pig",
+        2
+      ]
     ],
-    "feature_extraction_seconds": 129.1,
-    "head_train_seconds": 1.01,
-    "params_trainable": 73985,
-    "params_total": 1000993,
-    "inference_ms_per_image_end_to_end": 38.8,
-    "test": {
-      "accuracy": 0.9511,
-      "precision": 0.9475,
-      "recall": 0.9596,
-      "f1": 0.9535,
-      "roc_auc": 0.9893,
-      "confusion": {
-        "tn": 405,
-        "fp": 25,
-        "fn": 19,
-        "tp": 451
+    "empty_share": 0.5173,
+    "sizes": [
+      [
+        "(2048, 1494)",
+        233124
+      ],
+      [
+        "(2048, 1536)",
+        5368
+      ],
+      [
+        "(800, 584)",
+        2827
+      ],
+      [
+        "(2560, 1920)",
+        1781
+      ]
+    ],
+    "bad_dates": 1,
+    "first_date": "2010-05-25",
+    "last_date": "2015-06-03",
+    "photos_by_year": [
+      [
+        2010,
+        2638
+      ],
+      [
+        2011,
+        37276
+      ],
+      [
+        2012,
+        29723
+      ],
+      [
+        2013,
+        40401
+      ],
+      [
+        2014,
+        128662
+      ],
+      [
+        2015,
+        4399
+      ]
+    ],
+    "median_photos_per_camera_day": 9.0,
+    "busiest_camera_day": 2829,
+    "photos_per_site_min_median_max": [
+      1,
+      369,
+      37766
+    ],
+    "frames_per_burst": [
+      [
+        1,
+        147938
+      ],
+      [
+        3,
+        91557
+      ],
+      [
+        5,
+        3605
+      ]
+    ],
+    "night_share_by_clock": 0.368,
+    "grey_share_of_1500_cct20_photos": 0.645
+  },
+  "steps": {
+    "find_the_animal": "MegaDetector v5a, box threshold 0.2, no box means empty",
+    "name_the_animal": "MobileNetV3-Small retrained on crops at 224 pixels, 18 labels"
+  },
+  "final_model": {
+    "file": "models/pawsort_wildlife.pt",
+    "labels": [
+      "badger",
+      "bird",
+      "bobcat",
+      "car",
+      "cat",
+      "cow",
+      "coyote",
+      "deer",
+      "dog",
+      "fox",
+      "lizard",
+      "mountain_lion",
+      "opossum",
+      "rabbit",
+      "raccoon",
+      "rodent",
+      "skunk",
+      "squirrel"
+    ],
+    "parameters": 1536306,
+    "training_crops": 42379,
+    "training_sites": 130,
+    "epochs": 8,
+    "train_seconds_gpu": 969,
+    "check_accuracy": 0.9453734671125975,
+    "known_sites": {
+      "photos": 15826,
+      "accuracy": 0.8233918867686086,
+      "macro_f1": 0.6069778748243424,
+      "animal_accuracy": 0.8280759251672811,
+      "empty_found": 0.7652542372881356,
+      "animals_called_empty": 0.0991396968455551,
+      "sent_to_person": 0.21053961834955137,
+      "accuracy_when_sure": 0.8852249079558188,
+      "bursts": 6424,
+      "burst_accuracy": 0.9083125778331258,
+      "burst_sent_to_person": 0.2238480697384807,
+      "burst_accuracy_when_sure": 0.9578820697954272,
+      "per_label": {
+        "badger": 0.25,
+        "bird": 0.714,
+        "bobcat": 0.806,
+        "car": 0.99,
+        "cat": 0.82,
+        "coyote": 0.802,
+        "deer": 0.84,
+        "dog": 0.699,
+        "empty": 0.765,
+        "fox": 0.5,
+        "opossum": 0.868,
+        "rabbit": 0.836,
+        "raccoon": 0.854,
+        "rodent": 0.687,
+        "skunk": 0.83,
+        "squirrel": 0.715
       }
+    },
+    "new_sites": {
+      "photos": 23266,
+      "accuracy": 0.7383306111922978,
+      "macro_f1": 0.4540290034880363,
+      "animal_accuracy": 0.7242647058823529,
+      "empty_found": 0.9083239595050618,
+      "animals_called_empty": 0.12425539836187639,
+      "sent_to_person": 0.29644115877245764,
+      "accuracy_when_sure": 0.8337711527888081,
+      "bursts": 8982,
+      "burst_accuracy": 0.8414606991761301,
+      "burst_sent_to_person": 0.33812068581607657,
+      "burst_accuracy_when_sure": 0.942977291841884,
+      "per_label": {
+        "badger": 0.214,
+        "bird": 0.429,
+        "bobcat": 0.673,
+        "car": 0.987,
+        "cat": 0.525,
+        "coyote": 0.669,
+        "dog": 0.735,
+        "empty": 0.908,
+        "fox": 1.0,
+        "opossum": 0.833,
+        "rabbit": 0.657,
+        "raccoon": 0.681,
+        "rodent": 0.19,
+        "skunk": 0.802,
+        "squirrel": 0.723
+      }
+    }
+  },
+  "comparison": {
+    "pixels_logistic_regression": {
+      "known_sites": 0.40357639327688616,
+      "new_sites": 0.32846213358548954
+    },
+    "whole_photo_frozen_small_160": {
+      "known_sites": 0.5246,
+      "new_sites": 0.3234
+    },
+    "crops_frozen_small_160": {
+      "known_sites": 0.7287375205358271,
+      "new_sites": 0.6019083641365082
+    },
+    "crops_frozen_large_224": {
+      "known_sites": 0.7566662454189309,
+      "new_sites": 0.6453193501246454
+    },
+    "crops_retrained_small_20_sites": {
+      "known_sites": 0.8103121445722229,
+      "new_sites": 0.6962950227800223
+    },
+    "crops_retrained_small_130_sites": {
+      "known_sites": 0.8233918867686086,
+      "new_sites": 0.7383306111922978
     }
   }
 }

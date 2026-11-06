@@ -1,0 +1,25 @@
+import pytest
+
+from ai_server import detector
+from ai_server.logic import decide
+from ai_server.model import crop_to_box, load_model, predict_scores, preprocess
+from ai_server.worker import process_one
+
+
+@pytest.fixture(scope="module")
+def predict():
+    finder = detector.load()
+    model, labels = load_model("models/pawsort_wildlife.pt", "models/labels.json")
+
+    def run(image):
+        def classify(box):
+            return predict_scores(model, labels, preprocess(crop_to_box(image, box)))
+        return decide(detector.find(finder, image), classify)
+    return run
+
+
+@pytest.mark.parametrize("photo,label", [("bobcat_1.jpg", "bobcat"), ("coyote_1.jpg", "coyote"), ("empty_1.jpg", "empty")])
+def test_real_photo_through_both_models(orch_client, copy_photo, predict, photo, label):
+    job_id = orch_client.post("/jobs", json={"image_path": copy_photo(photo)}).json()["id"]
+    process_one(orch_client, predict)
+    assert orch_client.get(f"/jobs/{job_id}").json()["label"] == label
