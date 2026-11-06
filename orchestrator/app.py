@@ -32,3 +32,23 @@ def create_app(db_path: str) -> FastAPI:
         finally:
             conn.close()
 
+    @app.post("/jobs/claim")
+    def claim():
+        conn = open_db()
+        try:
+            job = db.claim_job(conn)
+        finally:
+            conn.close()
+        return job if job else Response(status_code=204)
+
+    @app.get("/jobs/{job_id}")
+    def read(job_id: str):
+        conn = open_db()
+        try:
+            job = db.get_job(conn, job_id)
+        finally:
+            conn.close()
+        if job is None:
+            raise HTTPException(404, "Unknown job")
+        return job
+
