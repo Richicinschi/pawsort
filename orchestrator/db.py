@@ -54,3 +54,20 @@ def claim_job(conn: sqlite3.Connection) -> dict | None:
         raise
     return get_job(conn, row["id"]) if row else None
 
+
+def _move(conn: sqlite3.Connection, job_id: str, new_status: str, fields: dict) -> None:
+    job = get_job(conn, job_id)
+    if job is None:
+        raise KeyError(job_id)
+    check_transition(job["status"], new_status)
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE jobs SET status = ?, {sets}, updated_at = ? WHERE id = ?",
+                 (new_status, *fields.values(), _now(), job_id))
+
+
+def set_result(conn: sqlite3.Connection, job_id: str, label: str, probability: float, needs_review: bool) -> None:
+    _move(conn, job_id, "done", {"label": label, "probability": probability, "needs_review": int(needs_review)})
+
+
+def set_failed(conn: sqlite3.Connection, job_id: str, error: str) -> None:
+    _move(conn, job_id, "failed", {"error": error})
