@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PawSort</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; }
+  label { display: block; margin-bottom: 1rem; }
+  input { display: block; margin-top: 0.25rem; }
+  #notice { color: #444; font-size: 0.95rem; }
+  #results { padding-left: 1.2rem; }
+  .review { color: #a15c00; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+<h1>PawSort</h1>
+<p>Upload photos from one camera. For each photo we tell you if it is empty or which animal it shows.</p>
+<form id="form">
+  <label>Camera site code, for example A12
+    <input type="text" id="site" required>
+  </label>
+  <label>Photos (JPEG or PNG, at most 10 MB each)
+    <input type="file" id="files" accept="image/jpeg,image/png" multiple required>
+  </label>
+  <button type="submit">Upload photos</button>
+  <p id="notice">We delete every photo right after it is checked, also photos of people, and we do not store names or contact details.</p>
+</form>
+<p id="message" class="error"></p>
+<ul id="results" aria-live="polite"></ul>
+<script>
+const results = document.getElementById("results");
+const message = document.getElementById("message");
+const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+
+function addLine(name) {
+  const line = document.createElement("li");
+  line.append(`${name}: `, document.createElement("span"));
+  results.append(line);
+  return line.lastChild;
+}
+
+function show(answer, text, style = "") {
+  answer.textContent = text;
+  answer.className = style;
+}
+
+function showTag(answer, job) {
+  const tag = `${job.label}, ${job.percent}% sure.`;
+  if (job.needs_review) show(answer, `${tag} Needs review: we are not sure, so a person should check this photo.`, "review");
+  else show(answer, tag);
+}
+
+async function follow(answer, jobId) {
+  show(answer, "Still working...");
+  while (true) {
+    try {
+      const job = await (await fetch(`/result/${jobId}`)).json();
+      if (job.status === "done") return showTag(answer, job);
+      if (job.status === "failed") return show(answer, job.error, "error");
+    } catch {
+      // the server is restarting, so we ask again
+    }
+    await wait(1000);
+  }
+}
+
+document.getElementById("form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  message.textContent = "";
+  const body = new FormData();
+  body.append("site_code", document.getElementById("site").value.trim());
+  for (const file of document.getElementById("files").files) body.append("files", file);
+  try {
+    const reply = await fetch("/upload", { method: "POST", body });
+    const data = await reply.json();
+    if (!reply.ok) { message.textContent = data.detail; return; }
+    for (const photo of data.photos) {
+      const answer = addLine(photo.file);
+      if (photo.error) show(answer, photo.error, "error");
+      else follow(answer, photo.job_id);
+    }
+  } catch {
+    message.textContent = "We could not reach the website. Please try again.";
+  }
+});
+</script>
+</body>
+</html>
