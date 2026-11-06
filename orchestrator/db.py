@@ -28,3 +28,29 @@ def connect(path: str) -> sqlite3.Connection:
         "updated_at TEXT NOT NULL)")
     return conn
 
+
+def create_job(conn: sqlite3.Connection, image_path: str) -> str:
+    job_id, now = str(uuid.uuid4()), _now()
+    conn.execute("INSERT INTO jobs (id, image_path, status, created_at, updated_at) VALUES (?, ?, 'new', ?, ?)",
+                 (job_id, image_path, now, now))
+    return job_id
+
+
+def get_job(conn: sqlite3.Connection, job_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def claim_job(conn: sqlite3.Connection) -> dict | None:
+    """Move the oldest 'new' job to 'processing' in one transaction, so two workers never get the same job."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute("SELECT id FROM jobs WHERE status = 'new' ORDER BY created_at LIMIT 1").fetchone()
+        if row is not None:
+            conn.execute("UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?", (_now(), row["id"]))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return get_job(conn, row["id"]) if row else None
+
