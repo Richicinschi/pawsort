@@ -99,10 +99,13 @@ def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_ever
             raise HTTPException(422, "label must be a known label, with probability and needs_review")
         conn = open_db()
         try:
+            job = db.get_job(conn, job_id)
             if body.error is not None:
                 db.set_failed(conn, job_id, body.error)
             else:
                 db.set_result(conn, job_id, body.label, body.probability, body.needs_review)
+                if body.label == db.PERSON:  # FR-14: at any confidence, also if the AI server kept it
+                    delete_photo(job["image_path"])
             return db.get_job(conn, job_id)
         except KeyError:
             raise HTTPException(404, "Unknown job")
