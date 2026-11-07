@@ -24,7 +24,7 @@
     <input type="file" id="files" accept="image/jpeg,image/png" multiple required>
   </label>
   <button type="submit">Upload photos</button>
-  <p id="notice">We delete every photo right after it is checked, also photos of people, and we do not store names or contact details.</p>
+  <p id="notice">We delete every photo right after it is checked, also when the check fails. A photo of a person is always deleted, whatever the percentage is. We do not store names or contact details.</p>
 </form>
 <p id="message" class="error"></p>
 <ul id="results" aria-live="polite"></ul>
@@ -47,7 +47,8 @@ function show(answer, text, style = "") {
 
 function showTag(answer, job) {
   const tag = `${job.label}, ${job.percent}% sure.`;
-  if (job.needs_review) show(answer, `${tag} Needs review: we are not sure, so a person should check this photo.`, "review");
+  if (job.note) show(answer, `${tag} ${job.note}`);
+  else if (job.needs_review) show(answer, `${tag} Needs review: we are not sure, so a person should check this photo.`, "review");
   else show(answer, tag);
 }
 
