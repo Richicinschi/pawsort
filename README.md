@@ -30,6 +30,12 @@ The website refuses a file and says why when it is empty, larger than 10 MB, not
 
 The website removes all metadata from a photo, so also the location data, and saves it under a random name in `data/uploads`. The website never serves that folder.
 
+## When something goes wrong
+
+A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.
+
+When the middle server answers with an error, the AI server writes it down, waits a second and carries on. An answer that comes after the 30 seconds gets refused, so a failed job stays failed.
+
 ## Test
 
 ```

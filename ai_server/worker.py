@@ -8,8 +8,10 @@ from PIL import Image
 
 from ai_server.logic import decide, format_result
 
+Predict = Callable[[Image.Image], dict[str, float]]
 
-def process_one(client: httpx.Client, predict: Callable[[Image.Image], float]) -> bool:
+
+def process_one(client: httpx.Client, predict: Predict) -> bool:
     """Handle one job if there is one. Returns False when the queue is empty."""
     r = client.post("/jobs/claim")
     if r.status_code == 204:
@@ -30,6 +32,18 @@ def process_one(client: httpx.Client, predict: Callable[[Image.Image], float]) -
     return True
 
 
+def poll(client: httpx.Client, predict: Predict, wait: Callable[[float], None] = time.sleep) -> None:
+    """One turn of the worker loop. Trouble with the middle server only makes the worker wait."""
+    try:
+        if not process_one(client, predict):
+            wait(0.5)
+    except httpx.TransportError:
+        wait(1.0)  # orchestrator not up yet or restarting
+    except httpx.HTTPStatusError as exc:
+        print(f"middle server answered {exc.response.status_code}, trying again in a moment")
+        wait(1.0)
+
+
 def main() -> None:
     from ai_server import detector
     from ai_server.model import crop_to_box, load_model, predict_scores, preprocess
@@ -46,11 +60,7 @@ def main() -> None:
     with httpx.Client(base_url=base, timeout=10) as client:
         print(f"AI server polling {base}")
         while True:
-            try:
-                if not process_one(client, predict):
-                    time.sleep(0.5)
-            except httpx.TransportError:
-                time.sleep(1.0)  # orchestrator not up yet or restarting
+            poll(client, predict)
 
 
 if __name__ == "__main__":
