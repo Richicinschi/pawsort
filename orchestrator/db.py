@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 TRANSITIONS = {"new": {"processing"}, "processing": {"done", "failed"}, "done": set(), "failed": set()}
 STUCK_SECONDS = 30
+PERSON = "person"
 
 
 class InvalidTransition(Exception):
@@ -69,7 +70,10 @@ def _move(conn: sqlite3.Connection, job_id: str, new_status: str, fields: dict) 
 
 
 def set_result(conn: sqlite3.Connection, job_id: str, label: str, probability: float, needs_review: bool) -> None:
-    _move(conn, job_id, "done", {"label": label, "probability": probability, "needs_review": int(needs_review)})
+    fields = {"label": label, "probability": probability, "needs_review": int(needs_review)}
+    if label == PERSON:  # FR-14: never waits for a review, and the row keeps nothing of the photo
+        fields.update(needs_review=0, image_path="")
+    _move(conn, job_id, "done", fields)
 
 
 def set_failed(conn: sqlite3.Connection, job_id: str, error: str) -> None:

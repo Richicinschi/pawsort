@@ -12,6 +12,19 @@ from PIL import Image
 from interface.validation import MAX_BYTES, UploadError, check_site_code, validate_upload
 
 PAGE = Path(__file__).parent / "static" / "index.html"
+PERSON_NOTE = "This photo shows a person, so we deleted it."
+
+
+def show_job(job: dict) -> dict:
+    out = {"status": job["status"]}
+    if job["status"] == "done":
+        out.update(label=job["label"].replace("_", " "), percent=int(round(job["probability"] * 100, 2)),
+                   needs_review=bool(job["needs_review"]))
+        if job["label"] == "person":
+            out["note"] = PERSON_NOTE
+    elif job["status"] == "failed":
+        out["error"] = "We could not check this photo. Please try another one."
+    return out
 
 
 def create_app(orch: httpx.Client, upload_dir: str) -> FastAPI:
@@ -55,14 +68,7 @@ def create_app(orch: httpx.Client, upload_dir: str) -> FastAPI:
         if r.status_code == 404:
             raise HTTPException(404, "Unknown job.")
         r.raise_for_status()
-        job = r.json()
-        out = {"status": job["status"]}
-        if job["status"] == "done":
-            out.update(label=job["label"].replace("_", " "), percent=int(round(job["probability"] * 100, 2)),
-                       needs_review=bool(job["needs_review"]))
-        elif job["status"] == "failed":
-            out["error"] = "We could not check this photo. Please try another one."
-        return out
+        return show_job(r.json())
 
     return app
 

@@ -30,6 +30,12 @@ The website refuses a file and says why when it is empty, larger than 10 MB, not
 
 The website removes all metadata from a photo, so also the location data, and saves it under a random name in `data/uploads`. The website never serves that folder.
 
+## Photos of people
+
+A photo with the label person gets deleted at any confidence, so also under 80%. The middle server does this as soon as it gets the label, even if the AI server did not delete the photo. It is the one exception to the needs review rule, so these jobs never get the mark. The job row keeps the label and the site code, and the path to the photo gets cleared. The page says that we deleted the photo.
+
+The AI server still deletes every other photo right after the check, so the notice next to the upload button says that we delete every photo.
+
 ## When something goes wrong
 
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.
