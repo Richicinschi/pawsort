@@ -1,9 +1,10 @@
 """Jobs table and its state machine. The orchestrator is the only owner of this data."""
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 TRANSITIONS = {"new": {"processing"}, "processing": {"done", "failed"}, "done": set(), "failed": set()}
+STUCK_SECONDS = 30
 
 
 class InvalidTransition(Exception):
@@ -61,8 +62,10 @@ def _move(conn: sqlite3.Connection, job_id: str, new_status: str, fields: dict) 
         raise KeyError(job_id)
     check_transition(job["status"], new_status)
     sets = ", ".join(f"{k} = ?" for k in fields)
-    conn.execute(f"UPDATE jobs SET status = ?, {sets}, updated_at = ? WHERE id = ?",
-                 (new_status, *fields.values(), _now(), job_id))
+    moved = conn.execute(f"UPDATE jobs SET status = ?, {sets}, updated_at = ? WHERE id = ? AND status = ?",
+                         (new_status, *fields.values(), _now(), job_id, job["status"]))
+    if moved.rowcount == 0:  # somebody else moved this job a moment ago
+        raise InvalidTransition(f"{job['status']} -> {new_status} came too late")
 
 
 def set_result(conn: sqlite3.Connection, job_id: str, label: str, probability: float, needs_review: bool) -> None:
@@ -71,3 +74,18 @@ def set_result(conn: sqlite3.Connection, job_id: str, label: str, probability: f
 
 def set_failed(conn: sqlite3.Connection, job_id: str, error: str) -> None:
     _move(conn, job_id, "failed", {"error": error})
+
+
+def fail_stuck_jobs(conn: sqlite3.Connection, seconds: float = STUCK_SECONDS) -> list[str]:
+    """Fail every job that stayed in 'processing' too long. Returns the photos of these jobs."""
+    limit = (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+    stuck = conn.execute("SELECT id, image_path FROM jobs WHERE status = 'processing' AND updated_at < ?",
+                         (limit,)).fetchall()
+    photos = []
+    for job in stuck:
+        try:
+            set_failed(conn, job["id"], f"no answer within {seconds} seconds")
+            photos.append(job["image_path"])
+        except InvalidTransition:
+            pass  # the AI server answered just in time
+    return photos

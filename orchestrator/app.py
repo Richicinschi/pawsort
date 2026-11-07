@@ -1,5 +1,8 @@
 """Orchestrator: the single meeting point between the interface and the AI server."""
 import os
+import sqlite3
+import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
@@ -9,6 +12,7 @@ from orchestrator import db
 
 LABELS = {"empty", "person", "badger", "bird", "bobcat", "car", "cat", "cow", "coyote", "deer", "dog", "fox", "lizard",
           "mountain_lion", "opossum", "rabbit", "raccoon", "rodent", "skunk", "squirrel"}
+CHECK_EVERY = 1.0  # seconds between two looks for stuck jobs
 
 
 class NewJob(BaseModel):
@@ -23,11 +27,42 @@ class JobResult(BaseModel):
     error: str | None = None
 
 
-def create_app(db_path: str) -> FastAPI:
-    app = FastAPI(title="PawSort orchestrator")
+def delete_photo(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass  # the AI server was first
+    except OSError as exc:  # the AI server still has it open and deletes it when it is done
+        print(f"could not delete a photo yet: {exc}")
 
+
+def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_every: float = CHECK_EVERY) -> FastAPI:
     def open_db():
         return db.connect(db_path)
+
+    def fail_stuck_jobs() -> None:
+        conn = open_db()
+        try:
+            for path in db.fail_stuck_jobs(conn, stuck_seconds):
+                delete_photo(path)
+        finally:
+            conn.close()
+
+    def keep_checking(stop: threading.Event) -> None:
+        while not stop.wait(check_every):
+            try:
+                fail_stuck_jobs()
+            except sqlite3.Error as exc:  # database busy, the next look tries again
+                print(f"check for stuck jobs failed: {exc}")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        stop = threading.Event()
+        threading.Thread(target=keep_checking, args=(stop,), daemon=True).start()
+        yield
+        stop.set()
+
+    app = FastAPI(title="PawSort orchestrator", lifespan=lifespan)
 
     @app.post("/jobs", status_code=201)
     def new_job(body: NewJob):
