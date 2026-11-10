@@ -36,6 +36,12 @@ A photo with the label person gets deleted at any confidence, so also under 80%.
 
 The AI server still deletes every other photo right after the check, so the notice next to the upload button says that we delete every photo.
 
+## Model version
+
+The version of the model sits in `models/model_version.txt`, right next to the model. The AI server reads it at the start and stops there if the file is missing or empty. It then sends the version with every result, also with a failed one, and the middle server keeps it in the job row. A job that fails because it got stuck has no version, because the AI server never answered.
+
+An older `data/pawsort.db` gets the new column by itself when the middle server starts, so you can keep your database.
+
 ## When something goes wrong
 
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.

@@ -1,5 +1,6 @@
 """Second step: cut out the animal and let our model name it."""
 import json
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -36,6 +37,14 @@ def load_model(weights_path: str, labels_path: str) -> tuple[nn.Module, list[str
     net.classifier[3] = nn.Linear(net.classifier[3].in_features, len(labels))
     net.load_state_dict(torch.load(weights_path, map_location="cpu"))
     return net.eval(), labels
+
+
+def read_version(weights_path: str) -> str:
+    """The version sits in a small file next to the model, so a new model brings its own version."""
+    version = Path(weights_path).with_name("model_version.txt").read_text(encoding="utf-8").strip()
+    if not version:
+        raise ValueError("model_version.txt is empty")
+    return version
 
 
 @torch.no_grad()
