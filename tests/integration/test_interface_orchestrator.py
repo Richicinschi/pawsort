@@ -225,6 +225,14 @@ def test_middle_server_down_makes_no_job_and_says_so():
     assert "try again" in upload(ui, ("cat.jpg", photo()))[0]["error"]
 
 
+def test_middle_server_down_gets_a_friendly_answer_when_the_page_asks_for_a_result():
+    down = httpx.Client(base_url="http://127.0.0.1:9", timeout=1)
+
+    r = TestClient(create_app(down)).get(f"/result/{uuid.uuid4()}")
+
+    assert r.status_code == 503 and "try again" in r.json()["detail"]
+
+
 def test_page_has_the_upload_form_and_the_notice_next_to_the_button(ui):
     r = ui.get("/")
     assert r.status_code == 200

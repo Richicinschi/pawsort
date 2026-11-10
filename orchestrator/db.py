@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 TRANSITIONS = {"new": {"processing"}, "processing": {"done", "failed"}, "done": set(), "failed": set()}
 STUCK_SECONDS = 30
 PERSON = "person"
+TRAINING_ROUND = 500  # approved corrections that wait for a training: AI-09
 
 
 class InvalidTransition(Exception):
@@ -13,6 +14,10 @@ class InvalidTransition(Exception):
 
 
 class NotOnReviewList(Exception):
+    pass
+
+
+class NotWaiting(Exception):
     pass
 
 
@@ -41,7 +46,12 @@ def connect(path: str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE jobs RENAME COLUMN image_path TO photo_name")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS reviews (job_id TEXT PRIMARY KEY REFERENCES jobs (id), old_label TEXT NOT NULL, "
-        "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL)")
+        "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL, decision TEXT, decided_at TEXT, "
+        "used_at TEXT)")
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(reviews)")}
+    for name in ("decision", "decided_at", "used_at"):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT")
     return conn
 
 
@@ -156,3 +166,57 @@ def save_review(conn: sqlite3.Connection, job_id: str, new_label: str) -> None:
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def corrections(conn: sqlite3.Connection) -> list[dict]:
+    """Every changed tag that waits for a decision, the oldest first. A change to person is final and never here."""
+    rows = conn.execute("SELECT job_id AS id, site_code, old_label, new_label, reviews.model_version FROM reviews "
+                        "JOIN jobs ON jobs.id = job_id WHERE new_label != old_label AND new_label != ? "
+                        "AND decision IS NULL ORDER BY reviewed_at", (PERSON,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def waits_for_decision(conn: sqlite3.Connection, job: dict) -> bool:
+    review = get_review(conn, job["id"])
+    return (review is not None and review["new_label"] not in (review["old_label"], PERSON)
+            and review["decision"] is None)
+
+
+def decide_correction(conn: sqlite3.Connection, job_id: str, decision: str) -> None:
+    """Approve or reject a correction, only once. A rejected correction was wrong, so the old label comes back."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        job = get_job(conn, job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if not waits_for_decision(conn, job):
+            raise NotWaiting(job_id)
+        conn.execute("UPDATE reviews SET decision = ?, decided_at = ? WHERE job_id = ?", (decision, _now(), job_id))
+        if decision == "rejected":
+            old_label = get_review(conn, job_id)["old_label"]
+            conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (old_label, _now(), job_id))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def for_training(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute("SELECT job_id AS id, new_label AS label, reviews.model_version FROM reviews "
+                        "JOIN jobs ON jobs.id = job_id WHERE decision = 'approved' AND used_at IS NULL "
+                        "AND photo_name != '' ORDER BY decided_at").fetchall()
+    return [dict(row) for row in rows]
+
+
+def waits_for_training(conn: sqlite3.Connection, job: dict) -> bool:
+    review = get_review(conn, job["id"])
+    return review is not None and review["decision"] == "approved" and review["used_at"] is None
+
+
+def mark_used(conn: sqlite3.Connection, job_ids: list[str]) -> int:
+    """A training took these corrections. Returns how many of them really were approved and still waiting."""
+    taken = 0
+    for job_id in job_ids:
+        taken += conn.execute("UPDATE reviews SET used_at = ? WHERE job_id = ? AND decision = 'approved' "
+                              "AND used_at IS NULL", (_now(), job_id)).rowcount
+    return taken

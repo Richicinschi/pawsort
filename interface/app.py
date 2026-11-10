@@ -14,16 +14,23 @@ from interface.validation import MAX_BYTES, UploadError, check_site_code, valida
 
 PAGE = Path(__file__).parent / "static" / "index.html"
 REVIEW_PAGE = Path(__file__).parent / "static" / "review.html"
+CORRECTIONS_PAGE = Path(__file__).parent / "static" / "corrections.html"
 PERSON_NOTE = "This photo shows a person, so we deleted it."
 WEAK_BOX = "The model saw something in this photo, but not clearly enough to say what it is."
 NO_SERVER = "We could not reach the server. Please try again."
 NO_PHOTO = "There is no photo to check for this job."
 REVIEW_ERRORS = {404: "We cannot find this job.", 409: "This job is already checked.",
                  422: "Please pick a label from the list."}
+DECISION_ERRORS = {404: "We cannot find this correction.", 409: "This correction already has a decision.",
+                   422: "Please press Approve or Reject."}
 
 
 class Review(BaseModel):
     label: str
+
+
+class Decision(BaseModel):
+    decision: str
 
 
 def show_label(label: str) -> str:
@@ -74,8 +81,41 @@ def show_review_job(job: dict) -> dict:
             "model_version": job["model_version"] or "unknown"}
 
 
+def show_correction(job: dict) -> dict:
+    return {"job_id": job["id"], "site_code": job["site_code"] or "unknown", "old_label": show_label(job["old_label"]),
+            "new_label": show_label(job["new_label"]), "model_version": job["model_version"] or "unknown"}
+
+
+def training_note(numbers: dict) -> str:
+    waiting = numbers["for_training"]
+    note = "1 approved correction waits" if waiting == 1 else f"{waiting} approved corrections wait"
+    note += " for the next training."
+    return note + " It is time to plan a training round." if numbers["plan_training"] else note
+
+
 def create_app(orch: httpx.Client) -> FastAPI:
     app = FastAPI(title="PawSort")
+
+    def ask(method: str, address: str, errors: dict | None = None, **more) -> dict:
+        """Ask the middle server. Its refusals become our own sentences, anything else is a friendly 503."""
+        try:
+            r = orch.request(method, address, **more)
+        except httpx.HTTPError:
+            raise HTTPException(503, NO_SERVER)
+        if r.status_code in (errors or {}):
+            raise HTTPException(r.status_code, errors[r.status_code])
+        if r.is_error:
+            raise HTTPException(503, NO_SERVER)
+        return r.json()
+
+    def pass_photo(address: str) -> Response:
+        try:
+            r = orch.get(address)
+        except httpx.HTTPError:
+            raise HTTPException(503, NO_SERVER)
+        if r.is_error:  # the middle server alone decides who gets a photo
+            raise HTTPException(404, NO_PHOTO)
+        return Response(r.content, media_type=r.headers["content-type"], headers={"Cache-Control": "no-store"})
 
     def send_photo(data: bytes, site_code: str) -> str:
         fmt = validate_upload(data)
@@ -109,11 +149,7 @@ def create_app(orch: httpx.Client) -> FastAPI:
 
     @app.get("/result/{job_id}")
     def result(job_id: uuid.UUID):  # only a real job number may go into an address of the middle server
-        r = orch.get(f"/jobs/{job_id}")
-        if r.status_code == 404:
-            raise HTTPException(404, "Unknown job.")
-        r.raise_for_status()
-        return show_job(r.json())
+        return show_job(ask("GET", f"/jobs/{job_id}", {404: "Unknown job."}))
 
     @app.get("/review", response_class=HTMLResponse)
     def review_page():
@@ -121,36 +157,35 @@ def create_app(orch: httpx.Client) -> FastAPI:
 
     @app.get("/review/jobs")
     def review_jobs():
-        try:
-            r = orch.get("/review")
-            r.raise_for_status()
-        except httpx.HTTPError:
-            raise HTTPException(503, NO_SERVER)
-        body = r.json()
+        body = ask("GET", "/review")
         return {"jobs": [show_review_job(job) for job in body["jobs"]],
                 "labels": [{"value": label, "text": show_label(label)} for label in body["labels"]]}
 
     @app.get("/review/{job_id}/photo")
     def review_photo(job_id: uuid.UUID):
-        try:
-            r = orch.get(f"/review/{job_id}/photo")
-        except httpx.HTTPError:
-            raise HTTPException(503, NO_SERVER)
-        if r.is_error:  # the middle server only gives it out while the job is on the review list
-            raise HTTPException(404, NO_PHOTO)
-        return Response(r.content, media_type=r.headers["content-type"], headers={"Cache-Control": "no-store"})
+        return pass_photo(f"/review/{job_id}/photo")
 
     @app.post("/review/{job_id}")
     def review(job_id: uuid.UUID, body: Review):
-        try:
-            r = orch.post(f"/jobs/{job_id}/review", json={"label": body.label})
-        except httpx.HTTPError:
-            raise HTTPException(503, NO_SERVER)
-        if r.status_code in REVIEW_ERRORS:
-            raise HTTPException(r.status_code, REVIEW_ERRORS[r.status_code])
-        if r.is_error:
-            raise HTTPException(503, NO_SERVER)
-        return show_job(r.json())
+        return show_job(ask("POST", f"/jobs/{job_id}/review", REVIEW_ERRORS, json={"label": body.label}))
+
+    @app.get("/corrections", response_class=HTMLResponse)
+    def corrections_page():
+        return CORRECTIONS_PAGE.read_text(encoding="utf-8")
+
+    @app.get("/corrections/jobs")
+    def correction_jobs():
+        body = ask("GET", "/corrections")
+        return {"jobs": [show_correction(job) for job in body["jobs"]], "note": training_note(body)}
+
+    @app.get("/corrections/{job_id}/photo")
+    def correction_photo(job_id: uuid.UUID):
+        return pass_photo(f"/corrections/{job_id}/photo")
+
+    @app.post("/corrections/{job_id}")
+    def decide(job_id: uuid.UUID, body: Decision):
+        numbers = ask("POST", f"/corrections/{job_id}", DECISION_ERRORS, json={"decision": body.decision})
+        return {"note": training_note(numbers)}
 
     return app
 

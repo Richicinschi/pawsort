@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -33,6 +34,14 @@ class Review(BaseModel):
     label: str
 
 
+class Decision(BaseModel):
+    decision: Literal["approved", "rejected"]
+
+
+class Taken(BaseModel):
+    jobs: list[str]
+
+
 def delete_photo(path: str, wait: float = 0.1) -> bool:
     """True when the photo is gone, False when it is still there after a few tries."""
     for _ in range(TRIES):
@@ -49,7 +58,7 @@ def delete_photo(path: str, wait: float = 0.1) -> bool:
 
 
 def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SECONDS,
-               check_every: float = CHECK_EVERY) -> FastAPI:
+               check_every: float = CHECK_EVERY, training_round: int = db.TRAINING_ROUND) -> FastAPI:
     os.makedirs(photo_dir, exist_ok=True)
 
     def open_db():
@@ -74,6 +83,22 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
                 return Response(f.read(), media_type=next(kind for kind in ENDINGS if name.endswith(ENDINGS[kind])))
         except OSError:
             raise HTTPException(404, "This job has no photo")
+
+    def photo_if(job_id: str, allowed) -> Response:
+        conn = open_db()
+        try:
+            job = db.get_job(conn, job_id)
+            if job is None:
+                raise HTTPException(404, "Unknown job")
+            if not allowed(conn, job):
+                raise HTTPException(409, "The photo of this job is not given out at this address now")
+        finally:
+            conn.close()
+        return send_photo(job)
+
+    def training_numbers(conn: sqlite3.Connection) -> dict:
+        waiting = len(db.for_training(conn))
+        return {"for_training": waiting, "plan_training": waiting >= training_round}
 
     def fail_stuck_jobs() -> None:
         conn = open_db()
@@ -137,16 +162,7 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
 
     @app.get("/jobs/{job_id}/photo")
     def working_copy(job_id: str):
-        conn = open_db()
-        try:
-            job = db.get_job(conn, job_id)
-        finally:
-            conn.close()
-        if job is None:
-            raise HTTPException(404, "Unknown job")
-        if job["status"] != "processing":
-            raise HTTPException(409, "This job is not in processing")
-        return send_photo(job)
+        return photo_if(job_id, lambda conn, job: job["status"] == "processing")
 
     @app.post("/jobs/{job_id}/result")
     def result(job_id: str, body: JobResult):
@@ -183,16 +199,7 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
 
     @app.get("/review/{job_id}/photo")
     def review_photo(job_id: str):
-        conn = open_db()
-        try:
-            job = db.get_job(conn, job_id)
-            if job is None:
-                raise HTTPException(404, "Unknown job")
-            if not db.on_review_list(conn, job):
-                raise HTTPException(409, "This job is not on the review list")
-        finally:
-            conn.close()
-        return send_photo(job)
+        return photo_if(job_id, db.on_review_list)
 
     @app.post("/jobs/{job_id}/review")
     def review(job_id: str, body: Review):
@@ -209,6 +216,51 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
             raise HTTPException(404, "Unknown job")
         except db.NotOnReviewList:
             raise HTTPException(409, "This job is not on the review list")
+        finally:
+            conn.close()
+
+    @app.get("/corrections")
+    def corrections():
+        conn = open_db()
+        try:
+            return {"jobs": db.corrections(conn), **training_numbers(conn)}
+        finally:
+            conn.close()
+
+    @app.get("/corrections/{job_id}/photo")
+    def correction_photo(job_id: str):
+        return photo_if(job_id, db.waits_for_decision)
+
+    @app.post("/corrections/{job_id}")
+    def decide(job_id: str, body: Decision):
+        conn = open_db()
+        try:
+            db.decide_correction(conn, job_id, body.decision)
+            return training_numbers(conn)
+        except KeyError:
+            raise HTTPException(404, "Unknown job")
+        except db.NotWaiting:
+            raise HTTPException(409, "This job has no correction that waits for a decision")
+        finally:
+            conn.close()
+
+    @app.get("/training/corrections")
+    def training_corrections():
+        conn = open_db()
+        try:
+            return {"jobs": db.for_training(conn)}
+        finally:
+            conn.close()
+
+    @app.get("/training/corrections/{job_id}/photo")
+    def training_photo(job_id: str):
+        return photo_if(job_id, db.waits_for_training)
+
+    @app.post("/training/corrections/used")
+    def training_took(body: Taken):
+        conn = open_db()
+        try:
+            return {"used": db.mark_used(conn, body.jobs)}
         finally:
             conn.close()
 
