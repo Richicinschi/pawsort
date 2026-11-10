@@ -25,6 +25,7 @@ class JobResult(BaseModel):
     probability: float | None = None
     needs_review: bool | None = None
     error: str | None = None
+    model_version: str | None = None
 
 
 def delete_photo(path: str) -> None:
@@ -39,6 +40,8 @@ def delete_photo(path: str) -> None:
 def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_every: float = CHECK_EVERY) -> FastAPI:
     def open_db():
         return db.connect(db_path)
+
+    open_db().close()  # makes or upgrades the table once, before anything else runs
 
     def fail_stuck_jobs() -> None:
         conn = open_db()
@@ -101,9 +104,9 @@ def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_ever
         try:
             job = db.get_job(conn, job_id)
             if body.error is not None:
-                db.set_failed(conn, job_id, body.error)
+                db.set_failed(conn, job_id, body.error, body.model_version)
             else:
-                db.set_result(conn, job_id, body.label, body.probability, body.needs_review)
+                db.set_result(conn, job_id, body.label, body.probability, body.needs_review, body.model_version)
                 if body.label == db.PERSON:  # FR-14: at any confidence, also if the AI server kept it
                     delete_photo(job["image_path"])
             return db.get_job(conn, job_id)
