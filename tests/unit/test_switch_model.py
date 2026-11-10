@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import shutil
@@ -112,7 +113,7 @@ def test_accepted_version_gets_its_entry_with_date_training_data_and_report(mode
     assert (saved["current"], saved["previous"], sorted(saved["versions"])) == ("v2", "v1", ["v1", "v2"])
     entry = saved["versions"]["v2"]
     assert entry == {"trained_on": "2026-11-12", "training_data": "crops for v2",
-                     "report": targets(run(accuracy=0.9))}
+                     "report": targets(run(accuracy=0.9)), "label_crops": CROPS}
     with open(os.path.join(models, "versions", "v2", "training_data.txt")) as f:
         assert f.read().splitlines() == ["crops for v2", "photo-1.jpg", "photo-2.jpg"]
 
@@ -331,14 +332,53 @@ def test_report_with_a_number_outside_0_to_1_is_refused(models, tmp_path, change
     assert on_disk(models) == before
 
 
-def test_the_repo_lists_the_model_it_ships_with_the_numbers_of_results_json():
+@pytest.fixture
+def shipped():
+    """The entry of the model the repo ships, with results.json and the first line of its training log."""
     with open("models/versions.json", encoding="utf-8") as f:
         saved = json.load(f)
     with open("results.json", encoding="utf-8") as f:
         final = json.load(f)["final_model"]
+    with open(f"training/logs/{saved['current']}.log", encoding="utf-8") as f:
+        first_line = f.readline()
+    return saved, saved["versions"][saved["current"]], final, first_line
 
+
+def test_the_repo_lists_the_model_it_ships(shipped):
+    saved, _, _, _ = shipped
     assert saved["current"] == read_version("models/pawsort_wildlife.pt")
-    entry = saved["versions"][saved["current"]]
-    assert entry["report"] == targets(final)
     assert all(os.path.exists(os.path.join("models", name)) for name in FILES)
+
+
+def test_crops_per_label_of_the_shipped_model_are_the_ones_in_its_training_log(shipped):
+    _, entry, final, first_line = shipped
+    logged = dict(ast.literal_eval(first_line[first_line.index("["):]))
+
+    assert entry["label_crops"] == {label: logged[label] for label in final["labels"]}
+    assert sum(entry["label_crops"].values()) == final["training_crops"] == int(first_line.split()[2])
+
+
+def test_report_of_the_shipped_model_is_what_results_json_and_the_crops_per_label_give(shipped):
+    _, entry, final, _ = shipped
+
+    assert entry["report"] == targets({**final, "label_crops": entry["label_crops"]})
     assert (entry["report"]["accuracy_known_sites"], entry["report"]["accuracy_new_sites"]) == (0.8234, 0.7383)
+    assert (entry["report"]["lowest_recall_known_sites"], entry["report"]["lowest_recall_new_sites"]) == (0.5, 0.19)
+    assert all(number is not None for number in entry["report"].values())
+
+
+def test_shipped_model_has_its_training_date(shipped):
+    assert shipped[1]["trained_on"] == "2026-11-06"
+
+
+def test_a_new_model_that_brings_its_crops_per_label_can_be_compared_with_the_shipped_one(shipped, tmp_path):
+    _, entry, final, _ = shipped
+    models = tmp_path / "models"
+    models.mkdir()
+    for name in FILES + ("versions.json",):
+        (models / name).write_bytes(open(os.path.join("models", name), "rb").read()[:2000])
+    same = {**final, "trained_on": "2026-11-12", "label_crops": entry["label_crops"]}
+
+    message = switch(write(tmp_path / "new", "wildlife-9.9", same), str(models))
+
+    assert message.startswith("Switched from wildlife-1.0 to wildlife-9.9.")

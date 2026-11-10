@@ -10,20 +10,29 @@ Extra photos from the other camera sites go in `data/caltech_sample`, with the l
 
 ```
 python training/prepare_crops.py --data data --cache data/cache
-python training/train.py --data data --cache data/cache --save
 ```
 
-`--save` writes the new model over `models/pawsort_wildlife.pt` and `models/labels.json`, and the scores into `training/last_run.json`. A new model must not go live like that, it has to pass `training/switch_model.py` first. So after the training:
+This cuts the animals out of all photos once. It takes a while, and you only repeat it when the photos change.
 
-1. Make a folder, for example `data/new_model`, and move `models/pawsort_wildlife.pt` and `models/labels.json` into it. Put the old two files back with `git checkout models/pawsort_wildlife.pt models/labels.json`.
-2. Write `model_version.txt` in that folder with the new version, for example `wildlife-1.1`.
-3. Copy `training/last_run.json` into the folder as `report.json`. Add `"trained_on"` with the date, for example `"2026-11-12"`, and `"label_crops"` with the number of training crops of every label, for example `{"bobcat": 3254, "rodent": 2244}`. Without `label_crops` the lowest recall cannot be checked.
-4. Write `training_data.txt`. The first line says in a few words what the model was trained on, the lines after it can list the photos.
-5. Run `python training/switch_model.py data/new_model` from the main folder.
+## A new model, step by step
 
-The script only switches when the new model scores at least as well as the current one on every target. The main README says how it decides and how to go back.
+Run every command from the main folder of the project.
 
-The approved corrections for a training come from `python training/export_corrections.py --out data/corrections`, with the middle server up.
+1. Fetch the approved corrections, with the middle server up:
+   `python training/export_corrections.py --out data/corrections`
+2. Turn them into crops:
+   `python training/correction_crops.py --corrections data/corrections`
+   It runs the detector on every photo and cuts the box the same way as `prepare_crops.py`. It skips a photo without a box of at least 0.2 and a correction to empty, and it prints how many it used and skipped.
+3. Train a new model into a folder of its own:
+   `python training/train.py --data data --cache data/cache --corrections data/corrections --save data/new_model --version wildlife-1.1`
+   Leave `--corrections` out to train without corrections. The folder gets `pawsort_wildlife.pt`, `labels.json`, `model_version.txt`, `report.json` with the scores, the training date and the crops per label, and `training_data.txt` with what the model was trained on. `--save models` is refused, because a new model has to pass the switch first.
+4. Offer it to the switch:
+   `python training/switch_model.py data/new_model`
+   It only switches when the new model scores at least as well as the current one on every target. The main README says how it decides.
+5. Start the AI server again.
+6. To go back to the version before: `python training/switch_model.py --back`, and start the AI server again.
+
+`training/logs/wildlife-1.0.log` is the log of the training of the model in the repo. Its first line has the training crops per label.
 
 A quick check that everything still runs:
 
