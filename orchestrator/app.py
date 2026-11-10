@@ -16,6 +16,7 @@ from orchestrator import db, numbers
 
 LABELS = {"empty", "person", "badger", "bird", "bobcat", "car", "cat", "cow", "coyote", "deer", "dog", "fox", "lizard",
           "mountain_lion", "opossum", "rabbit", "raccoon", "rodent", "skunk", "squirrel"}
+ANIMALS = LABELS - {"empty", "person"}
 CHECK_EVERY = 1.0  # seconds between two looks for stuck jobs
 ENDINGS = {"image/jpeg": "jpg", "image/png": "png"}
 TRIES = 3  # for a photo that somebody still reads
@@ -41,6 +42,11 @@ class Decision(BaseModel):
 
 class Taken(BaseModel):
     jobs: list[str]
+
+
+class Rare(BaseModel):
+    label: str
+    rare: bool
 
 
 def delete_photo(path: str, wait: float = 0.1) -> bool:
@@ -305,6 +311,33 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
     @app.post("/sample/{job_id}")
     def sample_answer(job_id: str, body: Review):
         return answer(job_id, body.label, numbers.save_answer)
+
+    @app.get("/rare")
+    def rare_animals():
+        conn = open_db()
+        try:
+            return {"rare": db.rare_animals(conn), "animals": sorted(ANIMALS)}
+        finally:
+            conn.close()
+
+    @app.post("/rare")
+    def set_rare(body: Rare):
+        if body.label not in ANIMALS:
+            raise HTTPException(422, "label must be one of the animals")
+        conn = open_db()
+        try:
+            db.set_rare(conn, body.label, body.rare)
+            return {"rare": db.rare_animals(conn), "animals": sorted(ANIMALS)}
+        finally:
+            conn.close()
+
+    @app.get("/tags")
+    def tags():
+        conn = open_db()
+        try:
+            return {"tags": db.tags(conn)}
+        finally:
+            conn.close()
 
     return app
 
