@@ -126,6 +126,14 @@ Two things to know. When more than 50 sure tags came in, the ones that were not 
 
 Both pages are meant for the team and have no login yet, and they say so.
 
+## Rare animals and the download
+
+http://127.0.0.1:8000/rare has the list of rare animals. An animal can be added from the labels we know and taken off the list again. The page is meant for the coordinator. There is no login yet, so everybody can use it, and the page says so.
+
+http://127.0.0.1:8000/download gives all tags as a CSV file, `pawsort-tags.csv`. It has one row for every job that is done: the job number, the camera site, the label, the percentage, if the tag still needs review, if a person checked it, the model version and the time of the upload. When a user changed a tag, the label is the one the user picked. The percentage is always the one of the model. For a rare animal the camera site and the time of the upload stay empty, and the rows are in the order of the job numbers, which are random, and not in the order of the uploads. Otherwise the rows next to a rare animal, from the same upload, would give its camera site away. The middle server already leaves the site code and the time out, so they never reach the website. A text cell that starts with =, +, - or @ gets a ' in front, so a spreadsheet does not read a site code like -A12 as a formula. The upload page has a link to the download.
+
+On the pages everybody still sees the camera site of every tag, also of a rare animal. Hiding it from volunteers needs a login, and the login is not built.
+
 ## When something goes wrong
 
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.

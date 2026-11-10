@@ -1,4 +1,5 @@
 """Interface server: talks to the user and to the orchestrator. Never to the AI server. It keeps no photo."""
+import csv
 import io
 import os
 import uuid
@@ -17,6 +18,7 @@ REVIEW_PAGE = Path(__file__).parent / "static" / "review.html"
 CORRECTIONS_PAGE = Path(__file__).parent / "static" / "corrections.html"
 NUMBERS_PAGE = Path(__file__).parent / "static" / "numbers.html"
 SAMPLE_PAGE = Path(__file__).parent / "static" / "sample.html"
+RARE_PAGE = Path(__file__).parent / "static" / "rare.html"
 PERSON_NOTE = "This photo shows a person, so we deleted it."
 WEAK_BOX = "The model saw something in this photo, but not clearly enough to say what it is."
 NO_SERVER = "We could not reach the server. Please try again."
@@ -27,6 +29,9 @@ DECISION_ERRORS = {404: "We cannot find this correction.", 409: "This correction
                    422: "Please press Approve or Reject."}
 SAMPLE_ERRORS = {**REVIEW_ERRORS, 409: "This tag does not wait in the sample of this week. Somebody already checked "
                                       "it, or it belongs to the sample of another week."}
+RARE_ERRORS = {422: "Please pick an animal from the list."}
+COLUMNS = ["job number", "camera site", "label", "percentage", "needs review", "checked by a person",
+           "model version", "time of the upload"]
 
 
 class Review(BaseModel):
@@ -35,6 +40,11 @@ class Review(BaseModel):
 
 class Decision(BaseModel):
     decision: str
+
+
+class Rare(BaseModel):
+    label: str
+    rare: bool
 
 
 def show_label(label: str) -> str:
@@ -151,6 +161,28 @@ def sample_note(sample: dict) -> str:
             f"{sample['changed']} of those changed.")
 
 
+def options(labels: list[str]) -> list[dict]:
+    return [{"value": label, "text": show_label(label)} for label in labels]
+
+
+def show_rare(body: dict) -> dict:
+    return {"rare": options(body["rare"]),
+            "animals": options([label for label in body["animals"] if label not in body["rare"]])}
+
+
+def text_cell(text: str | None) -> str:
+    """A spreadsheet reads a cell that starts with one of these signs as a formula, so it gets a ' in front."""
+    text = text or ""
+    return "'" + text if text[:1] in ("=", "+", "-", "@") else text
+
+
+def csv_row(tag: dict) -> list:
+    yes_no = {True: "yes", False: "no"}
+    return [tag["id"], text_cell(tag["site_code"]), text_cell(show_label(tag["label"])), percent(tag["probability"]),
+            yes_no[tag["needs_review"]], yes_no[tag["checked"]], text_cell(tag["model_version"]),
+            tag["created_at"] or ""]
+
+
 def create_app(orch: httpx.Client) -> FastAPI:
     app = FastAPI(title="PawSort")
 
@@ -216,8 +248,7 @@ def create_app(orch: httpx.Client) -> FastAPI:
     @app.get("/review/jobs")
     def review_jobs():
         body = ask("GET", "/review")
-        return {"jobs": [show_review_job(job) for job in body["jobs"]],
-                "labels": [{"value": label, "text": show_label(label)} for label in body["labels"]]}
+        return {"jobs": [show_review_job(job) for job in body["jobs"]], "labels": options(body["labels"])}
 
     @app.get("/review/{job_id}/photo")
     def review_photo(job_id: uuid.UUID):
@@ -263,7 +294,7 @@ def create_app(orch: httpx.Client) -> FastAPI:
     def sample_jobs():
         sample = ask("GET", "/sample")
         return {"jobs": [show_sample_job(job) for job in sample["jobs"]], "note": sample_note(sample),
-                "labels": [{"value": label, "text": show_label(label)} for label in sample["labels"]]}
+                "labels": options(sample["labels"])}
 
     @app.get("/sample/{job_id}/photo")
     def sample_photo(job_id: uuid.UUID):
@@ -272,6 +303,27 @@ def create_app(orch: httpx.Client) -> FastAPI:
     @app.post("/sample/{job_id}")
     def sample_answer(job_id: uuid.UUID, body: Review):
         return show_job(ask("POST", f"/sample/{job_id}", SAMPLE_ERRORS, json={"label": body.label}))
+
+    @app.get("/rare", response_class=HTMLResponse)
+    def rare_page():
+        return RARE_PAGE.read_text(encoding="utf-8")
+
+    @app.get("/rare/list")
+    def rare_list():
+        return show_rare(ask("GET", "/rare"))
+
+    @app.post("/rare")
+    def set_rare(body: Rare):
+        return show_rare(ask("POST", "/rare", RARE_ERRORS, json={"label": body.label, "rare": body.rare}))
+
+    @app.get("/download")
+    def download():
+        out = io.StringIO()
+        rows = csv.writer(out, lineterminator="\n")
+        rows.writerow(COLUMNS)
+        rows.writerows(csv_row(tag) for tag in ask("GET", "/tags")["tags"])
+        return Response(out.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="pawsort-tags.csv"'})
 
     return app
 
