@@ -22,7 +22,9 @@ From the main folder of the project:
 python run_all.py
 ```
 
-Then open http://127.0.0.1:8000, fill in a camera site code, pick one or more photos and press Upload photos. Ctrl+C stops all three servers.
+Then open http://127.0.0.1:8000, fill in a camera site code, drop your photos on the box or click it to pick them, and press Upload photos. Ctrl+C stops all three servers.
+
+Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user, so the website still never sends a photo back.
 
 The first photo can take a while, because the AI server loads the detector first. It can download the detector the very first time. Until then the page says "Still working...".
 
