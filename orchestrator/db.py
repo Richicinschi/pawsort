@@ -56,6 +56,7 @@ def connect(path: str) -> sqlite3.Connection:
     conn.execute("CREATE TABLE IF NOT EXISTS picks (week TEXT PRIMARY KEY, picked_at TEXT NOT NULL)")
     conn.execute("CREATE TABLE IF NOT EXISTS samples (job_id TEXT PRIMARY KEY REFERENCES jobs (id), "
                  "week TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS rare_animals (label TEXT PRIMARY KEY)")
     return conn
 
 
@@ -226,3 +227,30 @@ def mark_used(conn: sqlite3.Connection, job_ids: list[str]) -> int:
         taken += conn.execute("UPDATE reviews SET used_at = ? WHERE job_id = ? AND decision = 'approved' "
                               "AND used_at IS NULL", (utc_now(), job_id)).rowcount
     return taken
+
+
+def rare_animals(conn: sqlite3.Connection) -> list[str]:
+    return [row["label"] for row in conn.execute("SELECT label FROM rare_animals ORDER BY label")]
+
+
+def set_rare(conn: sqlite3.Connection, label: str, rare: bool) -> None:
+    if rare:
+        conn.execute("INSERT OR IGNORE INTO rare_animals (label) VALUES (?)", (label,))
+    else:
+        conn.execute("DELETE FROM rare_animals WHERE label = ?", (label,))
+
+
+def tags(conn: sqlite3.Connection) -> list[dict]:
+    """Every tag for the download. A rare animal has no camera site and no time, and the rows come in the order
+    of the job numbers, so the rows of the same upload next to it cannot give its site away: FR-18."""
+    rare = set(rare_animals(conn))
+    rows = conn.execute("SELECT id, site_code, label, probability, needs_review = 1 AND job_id IS NULL "
+                        "AS needs_review, job_id IS NOT NULL AS checked, jobs.model_version, created_at FROM jobs "
+                        "LEFT JOIN reviews ON job_id = id WHERE status = 'done' ORDER BY id").fetchall()
+    found = []
+    for row in rows:
+        tag = {**dict(row), "needs_review": bool(row["needs_review"]), "checked": bool(row["checked"])}
+        if tag["label"] in rare:
+            tag.update(site_code=None, created_at=None)
+        found.append(tag)
+    return found

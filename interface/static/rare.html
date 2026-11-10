@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PawSort rare animals</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1f; background: #f4f1ea; }
+  h1 { color: #1a1a1f; margin-bottom: 0.25rem; }
+  a { color: #1a1a1f; text-decoration: underline; }
+  #who { color: #55545f; font-size: 0.95rem; }
+  #rare { list-style: none; padding: 0; }
+  #rare li { display: flex; justify-content: space-between; align-items: center; background: #fffdf8; border: 1px solid #d9d4c7; border-left: 0.4rem solid #1a1a1f; border-radius: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 0.6rem; font-weight: 600; }
+  button { font: inherit; font-weight: 600; color: #fff; background: #1a1a1f; border: 0; border-radius: 0.4rem; padding: 0.4rem 1rem; cursor: pointer; }
+  select { font: inherit; padding: 0.35rem; border: 1px solid #b9b3a3; border-radius: 0.4rem; }
+  .error { color: #b3261e; }
+</style>
+</head>
+<body>
+<h1>Rare animals</h1>
+<p>Poachers could use the place of a rare animal. So for every animal on this list, the camera site is left out of the table that people can download.</p>
+<p id="who">This page is meant for the coordinator. There is no login yet, so everybody can use it. For the same reason the other pages still show the camera site of every tag to everybody.</p>
+<p><a href="/">Back to the upload page</a></p>
+<p id="message"></p>
+<p id="empty" hidden>No animal is on the list yet.</p>
+<ul id="rare"></ul>
+<p><select id="animals" aria-label="Animal"></select> <button type="button" id="add">Add to the list</button></p>
+<script>
+const rare = document.getElementById("rare");
+const animals = document.getElementById("animals");
+const message = document.getElementById("message");
+const empty = document.getElementById("empty");
+
+function say(text, style = "") {
+  message.textContent = text;
+  message.className = style;
+}
+
+function show(data) {
+  rare.replaceChildren(...data.rare.map((animal) => {
+    const line = document.createElement("li");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Take off the list";
+    remove.addEventListener("click", () => send(animal.value, false));
+    line.append(animal.text, remove);
+    return line;
+  }));
+  animals.replaceChildren(...data.animals.map((animal) => new Option(animal.text, animal.value)));
+  empty.hidden = data.rare.length > 0;
+}
+
+async function ask(address, options) {
+  say("");
+  try {
+    const reply = await fetch(address, options);
+    const data = await reply.json();
+    if (!reply.ok) return say(data.detail, "error");
+    show(data);
+  } catch {
+    say("We could not reach the website. Please try again.", "error");
+  }
+}
+
+function send(label, isRare) {
+  ask("/rare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label, rare: isRare }) });
+}
+
+document.getElementById("add").addEventListener("click", () => send(animals.value, true));
+ask("/rare/list");
+</script>
+</body>
+</html>
