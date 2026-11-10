@@ -60,20 +60,25 @@ def main():
     paths = [path for path in paths if "not_an_image" not in path]
     random.seed(SEED)
     work = tempfile.mkdtemp()
-    client = TestClient(create_app(os.path.join(work, "jobs.db")))
-    for number, path in enumerate(random.choices(paths, k=args.count)):
-        copy = os.path.join(work, f"{number}.jpg")  # the worker deletes the photo, so never give it the real one
-        shutil.copy(path, copy)
-        client.post("/jobs", json={"image_path": copy})
+    copies = os.path.join(work, "copies")
+    os.makedirs(copies)
+
+    def send(orch, path):
+        with open(path, "rb") as f:
+            return orch.post("/jobs", files={"photo": ("photo", f.read(), "image/jpeg")}).json()["id"]
+
+    client = TestClient(create_app(os.path.join(work, "jobs.db"), os.path.join(work, "photos")))
+    for path in random.choices(paths, k=args.count):
+        send(client, path)
 
     def ai_part():
-        while process_one(client, predict):
+        while process_one(client, predict, copies):
             pass
 
     def rest():
-        fresh = TestClient(create_app(os.path.join(work, "rest.db")))
-        for number in range(1000):
-            job_id = fresh.post("/jobs", json={"image_path": f"/x/{number}.jpg"}).json()["id"]
+        fresh = TestClient(create_app(os.path.join(work, "rest.db"), os.path.join(work, "rest_photos")))
+        for _ in range(1000):
+            job_id = send(fresh, paths[0])
             fresh.post("/jobs/claim")
             fresh.post(f"/jobs/{job_id}/result", json=format_result({"bobcat": 0.9, "coyote": 0.1}))
             fresh.get(f"/jobs/{job_id}")

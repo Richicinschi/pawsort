@@ -1,5 +1,4 @@
 import os
-import shutil
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,16 +9,31 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 
 
 @pytest.fixture
-def orch_client(tmp_path):
-    """A real orchestrator on a temporary database, reached over its HTTP API."""
-    return TestClient(create_app(str(tmp_path / "jobs.db")))
+def photos(tmp_path):
+    """The folder where the orchestrator of a test keeps its photos."""
+    return tmp_path / "photos"
 
 
 @pytest.fixture
-def copy_photo(tmp_path):
-    """Copy a test photo into the temp folder (the AI server deletes photos after use)."""
-    def _copy(name: str) -> str:
-        dst = tmp_path / name
-        shutil.copy(os.path.join(DATA, name), dst)
-        return str(dst.resolve())
-    return _copy
+def orch_client(tmp_path, photos):
+    """A real orchestrator on a temporary database, reached over its HTTP API."""
+    return TestClient(create_app(str(tmp_path / "jobs.db"), str(photos)))
+
+
+@pytest.fixture
+def work(tmp_path):
+    """An empty working folder for an AI server."""
+    folder = tmp_path / "work"
+    folder.mkdir()
+    return str(folder)
+
+
+@pytest.fixture
+def send_photo():
+    """Send a test photo to an orchestrator the way the website does. Gives back the job number."""
+    def _send(orch, name: str = "bobcat_1.jpg", site_code: str | None = None) -> str:
+        with open(os.path.join(DATA, name), "rb") as f:
+            r = orch.post("/jobs", data={"site_code": site_code} if site_code else {},
+                          files={"photo": ("photo", f.read(), "image/jpeg")})
+        return r.json()["id"]
+    return _send

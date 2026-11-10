@@ -5,8 +5,8 @@ from interface.app import create_app
 
 
 @pytest.fixture
-def ui(orch_client, tmp_path):
-    return TestClient(create_app(orch_client, str(tmp_path / "uploads")))
+def ui(orch_client):
+    return TestClient(create_app(orch_client))
 
 
 @pytest.mark.parametrize("address", ["/", "/review"])
@@ -34,11 +34,3 @@ def test_small_pictures_come_from_the_browser_and_not_from_us(ui):
 
 def test_picture_of_a_person_goes_away(ui):
     assert 'if (job.label === "person") answer.querySelector("img").removeAttribute("src")' in ui.get("/").text
-
-
-def test_website_never_gives_a_photo_back(ui, tmp_path):
-    uploads = tmp_path / "uploads"
-    (uploads / "trail.jpg").write_bytes(b"photo")
-
-    for address in ["/uploads/trail.jpg", "/data/uploads/trail.jpg", "/static/trail.jpg", "/trail.jpg"]:
-        assert ui.get(address).status_code == 404

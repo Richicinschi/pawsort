@@ -4,30 +4,31 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PawSort</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1f2a24; background: #f5f4ee; }
-  h1 { color: #2f6b4f; margin-bottom: 0.25rem; }
-  form { background: #fff; border: 1px solid #dcdad0; border-radius: 0.75rem; padding: 1.25rem; }
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1f; background: #f4f1ea; }
+  h1 { color: #1a1a1f; margin-bottom: 0.25rem; }
+  a { color: #1a1a1f; text-decoration: underline; }
+  form { background: #fffdf8; border: 1px solid #d9d4c7; border-radius: 0.75rem; padding: 1.25rem; }
   label { display: block; margin-bottom: 1rem; font-weight: 600; }
-  #site { display: block; margin-top: 0.25rem; padding: 0.5rem; font: inherit; border: 1px solid #b9b7ab; border-radius: 0.4rem; width: 10rem; }
-  #drop { border: 2px dashed #8fb3a0; border-radius: 0.75rem; padding: 2rem 1rem; text-align: center; cursor: pointer; background: #f3f8f5; }
-  #drop.over, #drop:focus-within { border-color: #2f6b4f; background: #e3f0e9; }
-  #drop span { display: block; font-weight: 400; color: #555; }
+  #site { display: block; margin-top: 0.25rem; padding: 0.5rem; font: inherit; border: 1px solid #b9b3a3; border-radius: 0.4rem; width: 10rem; }
+  #drop { border: 2px dashed #b9b3a3; border-radius: 0.75rem; padding: 2rem 1rem; text-align: center; cursor: pointer; background: #fbf8f0; }
+  #drop.over, #drop:focus-within { border-color: #1a1a1f; background: #fbe7a6; }
+  #drop span { display: block; font-weight: 400; color: #55545f; }
   #files { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  button { font: inherit; font-weight: 600; color: #fff; background: #2f6b4f; border: 0; border-radius: 0.4rem; padding: 0.6rem 1.25rem; cursor: pointer; }
-  button:disabled { background: #8fb3a0; cursor: wait; }
-  #notice { color: #444; font-size: 0.95rem; margin-bottom: 0; }
-  #summary span { display: inline-block; background: #fff; border: 1px solid #dcdad0; border-radius: 1rem; padding: 0.1rem 0.75rem; margin: 0 0.4rem 0.4rem 0; }
+  button { font: inherit; font-weight: 600; color: #fff; background: #1a1a1f; border: 0; border-radius: 0.4rem; padding: 0.6rem 1.25rem; cursor: pointer; }
+  button:disabled { background: #8b8a94; cursor: wait; }
+  #notice { color: #55545f; font-size: 0.95rem; margin-bottom: 0; }
+  #summary span { display: inline-block; background: #fffdf8; border: 1px solid #d9d4c7; border-radius: 1rem; padding: 0.1rem 0.75rem; margin: 0 0.4rem 0.4rem 0; }
   #results { list-style: none; padding: 0; }
-  #results li { display: flex; gap: 1rem; align-items: center; background: #fff; border: 1px solid #dcdad0; border-left: 0.4rem solid #2f6b4f; border-radius: 0.5rem; padding: 0.6rem; margin-bottom: 0.6rem; }
-  #results img { width: 6rem; height: 4.5rem; flex: none; object-fit: cover; border-radius: 0.3rem; background: #e4e2d8; }
+  #results li { display: flex; gap: 1rem; align-items: center; background: #fffdf8; border: 1px solid #d9d4c7; border-left: 0.4rem solid #1a1a1f; border-radius: 0.5rem; padding: 0.6rem; margin-bottom: 0.6rem; }
+  #results img { width: 6rem; height: 4.5rem; flex: none; object-fit: cover; border-radius: 0.3rem; background: #d9d4c7; }
   #results img:not([src]) { visibility: hidden; }
   #results strong { display: block; font-size: 1.15rem; }
-  #results small { display: block; color: #666; overflow-wrap: anywhere; }
-  #results li[data-state="working"] { border-left-color: #b9b7ab; }
-  #results li[data-state="review"] { border-left-color: #a15c00; }
-  #results li[data-state="error"] { border-left-color: #b00020; }
-  .review { color: #a15c00; }
-  .error { color: #b00020; }
+  #results small { display: block; color: #55545f; overflow-wrap: anywhere; }
+  #results li[data-state="working"] { border-left-color: #b9b3a3; }
+  #results li[data-state="review"] { border-left-color: #ffc21a; }
+  #results li[data-state="error"] { border-left-color: #b3261e; }
+  .review { color: #8a5a00; }
+  .error { color: #b3261e; }
 </style>
 </head>
 <body>
@@ -43,7 +44,7 @@
     <input type="file" id="files" accept="image/jpeg,image/png" multiple required>
   </label>
   <button type="submit" id="send">Upload photos</button>
-  <p id="notice">We delete every photo right after it is checked, also when the check fails. A photo of a person is always deleted, whatever the percentage is. We do not store names or contact details. The small pictures below come from your own computer, not from us.</p>
+  <p id="notice">We keep your photos on our server, because a person may have to look at a photo to check its tag, and because the next training of the model needs them. The model only gets a copy, and that copy is deleted right after the check, also when the check fails. A photo that shows a person is deleted at once, whatever the percentage is, and also when somebody picks person on the review list. A photo that we could not check is deleted too. We do not store names or contact details, and we remove the location data before we keep a photo. The small pictures below come from your own computer, not from us.</p>
 </form>
 <p><a href="/review">See the jobs that need review</a></p>
 <p id="message" class="error"></p>

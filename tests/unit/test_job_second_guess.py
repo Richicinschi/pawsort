@@ -15,7 +15,7 @@ def conn(tmp_path):
 
 
 def claimed_job(conn):
-    job_id = db.create_job(conn, "/x/cat.jpg", "A12")
+    job_id = db.create_job(conn, "cat.jpg", "A12")
     db.claim_job(conn)
     return job_id
 
@@ -26,7 +26,7 @@ def second_guess(conn, job_id):
 
 
 def test_new_job_has_no_second_guess_yet(conn):
-    assert second_guess(conn, db.create_job(conn, "/x/cat.jpg")) == (None, None)
+    assert second_guess(conn, db.create_job(conn, "cat.jpg")) == (None, None)
 
 
 def test_result_keeps_the_second_guess(conn):

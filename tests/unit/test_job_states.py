@@ -17,7 +17,7 @@ def test_forbidden_transitions(old, new):
 
 def test_job_lifecycle(tmp_path):
     conn = db.connect(str(tmp_path / "jobs.db"))
-    job_id = db.create_job(conn, "/tmp/cat.jpg")
+    job_id = db.create_job(conn, "cat.jpg")
     assert db.get_job(conn, job_id)["status"] == "new"
     claimed = db.claim_job(conn)
     assert claimed["id"] == job_id and claimed["status"] == "processing"

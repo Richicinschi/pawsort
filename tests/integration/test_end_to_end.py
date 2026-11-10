@@ -25,38 +25,38 @@ def predict():
 
 
 @pytest.mark.parametrize("photo,label", [("bobcat_1.jpg", "bobcat"), ("coyote_1.jpg", "coyote"), ("empty_1.jpg", "empty")])
-def test_real_photo_through_both_models(orch_client, copy_photo, predict, photo, label):
-    job_id = orch_client.post("/jobs", json={"image_path": copy_photo(photo)}).json()["id"]
-    process_one(orch_client, predict)
+def test_real_photo_through_both_models(orch_client, send_photo, work, predict, photo, label):
+    job_id = send_photo(orch_client, photo)
+    process_one(orch_client, predict, work)
     assert orch_client.get(f"/jobs/{job_id}").json()["label"] == label
 
 
-def test_real_model_reports_the_version_next_to_it(orch_client, copy_photo, predict):
+def test_real_model_reports_the_version_next_to_it(orch_client, send_photo, work, predict):
     version = read_version("models/pawsort_wildlife.pt")
-    job_id = orch_client.post("/jobs", json={"image_path": copy_photo("bobcat_1.jpg")}).json()["id"]
-    process_one(orch_client, predict, version)
+    job_id = send_photo(orch_client)
+    process_one(orch_client, predict, work, version)
     assert orch_client.get(f"/jobs/{job_id}").json()["model_version"] == version
 
 
-def test_real_model_gives_an_animal_a_second_guess_and_an_empty_photo_none(orch_client, copy_photo, predict):
-    bobcat = orch_client.post("/jobs", json={"image_path": copy_photo("bobcat_1.jpg")}).json()["id"]
-    empty = orch_client.post("/jobs", json={"image_path": copy_photo("empty_1.jpg")}).json()["id"]
-    process_one(orch_client, predict)
-    process_one(orch_client, predict)
+def test_real_model_gives_an_animal_a_second_guess_and_an_empty_photo_none(orch_client, send_photo, work, predict):
+    bobcat, empty = send_photo(orch_client, "bobcat_1.jpg"), send_photo(orch_client, "empty_1.jpg")
+    process_one(orch_client, predict, work)
+    process_one(orch_client, predict, work)
 
     job = orch_client.get(f"/jobs/{bobcat}").json()
     assert job["second_label"] not in (None, "bobcat") and 0 < job["second_probability"] < job["probability"]
     assert orch_client.get(f"/jobs/{empty}").json()["second_label"] is None
 
 
-def test_upload_on_the_website_to_answer_on_the_page(orch_client, tmp_path, predict):
-    ui = TestClient(create_app(orch_client, str(tmp_path / "uploads")))
+def test_upload_on_the_website_to_answer_on_the_page(orch_client, photos, work, predict):
+    ui = TestClient(create_app(orch_client))
     with open(os.path.join(DATA, "bobcat_1.jpg"), "rb") as f:
         r = ui.post("/upload", data={"site_code": "A12"}, files=[("files", ("bobcat_1.jpg", f.read()))])
     job_id = r.json()["photos"][0]["job_id"]
 
-    assert process_one(orch_client, predict) is True
+    assert process_one(orch_client, predict, work) is True
 
     answer = ui.get(f"/result/{job_id}").json()
     assert (answer["status"], answer["label"]) == ("done", "bobcat")
-    assert os.listdir(tmp_path / "uploads") == []
+    assert os.listdir(work) == []
+    assert os.listdir(photos) == [orch_client.get(f"/jobs/{job_id}").json()["photo_name"]]

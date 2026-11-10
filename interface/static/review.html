@@ -4,22 +4,24 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PawSort review list</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1f2a24; background: #f5f4ee; }
-  h1 { color: #2f6b4f; margin-bottom: 0.25rem; }
-  #limit { color: #444; font-size: 0.95rem; }
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1f; background: #f4f1ea; }
+  h1 { color: #1a1a1f; margin-bottom: 0.25rem; }
+  a { color: #1a1a1f; text-decoration: underline; }
+  #limit { color: #55545f; font-size: 0.95rem; }
   #jobs { list-style: none; padding: 0; }
-  #jobs li { background: #fff; border: 1px solid #dcdad0; border-left: 0.4rem solid #a15c00; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.6rem; }
+  #jobs li { background: #fffdf8; border: 1px solid #d9d4c7; border-left: 0.4rem solid #ffc21a; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.6rem; }
+  #jobs img { display: block; max-width: 100%; border-radius: 0.3rem; margin-bottom: 0.5rem; }
   #jobs p { margin: 0; font-weight: 600; }
-  #jobs small { display: block; color: #444; margin-bottom: 0.5rem; }
-  button { font: inherit; font-weight: 600; color: #fff; background: #2f6b4f; border: 0; border-radius: 0.4rem; padding: 0.4rem 1rem; cursor: pointer; }
-  select { font: inherit; padding: 0.35rem; border: 1px solid #b9b7ab; border-radius: 0.4rem; }
-  .error { color: #b00020; }
+  #jobs small { display: block; color: #55545f; margin-bottom: 0.5rem; }
+  button { font: inherit; font-weight: 600; color: #fff; background: #1a1a1f; border: 0; border-radius: 0.4rem; padding: 0.4rem 1rem; cursor: pointer; }
+  select { font: inherit; padding: 0.35rem; border: 1px solid #b9b3a3; border-radius: 0.4rem; }
+  .error { color: #b3261e; }
 </style>
 </head>
 <body>
 <h1>Needs review</h1>
-<p>The model is less than 80% sure about these jobs, so a person has to check them. The oldest job is on top. Under every job you see why it is here, the second guess of the model and the model version that made the tag. Confirm the label if it is right, or pick the right label from the list.</p>
-<p id="limit">We delete every photo right after it is checked, so we cannot show you the photo here. You see the job, the camera site, the label and the percentage, and under it what the model says about its tag. To decide, you need your own copy of the photo or what you know about that camera.</p>
+<p>The model is less than 80% sure about these jobs, so a person has to check them. The oldest job is on top. Under every job you see why it is here, the second guess of the model and the model version that made the tag. Look at the photo, then confirm the label if it is right, or pick the right label from the list.</p>
+<p id="limit">We show a photo here only while its job waits for a person. After your answer the photo stays on our server for the next training, but this page does not show it any more. If you pick person, we delete the photo at once.</p>
 <p><a href="/">Back to the upload page</a></p>
 <p id="message"></p>
 <p id="empty" hidden>Nothing to check right now.</p>
@@ -35,7 +37,7 @@ function say(text, style = "") {
   message.className = style;
 }
 
-async function send(job, label) {
+async function send(job, label, line) {
   say("");
   try {
     const reply = await fetch(`/review/${job.job_id}`, {
@@ -44,12 +46,13 @@ async function send(job, label) {
       body: JSON.stringify({ label }),
     });
     const data = await reply.json();
-    if (!reply.ok) say(data.detail, "error");
-    else if (data.note) say(data.note);
+    if (!reply.ok) { say(data.detail, "error"); return load(); }
+    if (data.note) say(data.note);
+    line.remove();
+    empty.hidden = jobs.children.length > 0;
   } catch {
     say(noServer, "error");
   }
-  load();
 }
 
 function button(text, click) {
@@ -67,6 +70,15 @@ function labelList(job, labels) {
   return list;
 }
 
+function photo(job) {
+  const picture = document.createElement("img");
+  picture.alt = `Photo of job ${job.job_id.slice(0, 8)}`;
+  picture.loading = "lazy";
+  picture.src = `/review/${job.job_id}/photo`;
+  picture.addEventListener("error", () => picture.replaceWith("We have no photo for this job."));
+  return picture;
+}
+
 function addJob(job, labels) {
   const line = document.createElement("li");
   const text = document.createElement("p");
@@ -74,7 +86,7 @@ function addJob(job, labels) {
   const more = document.createElement("small");
   more.textContent = [job.reason, job.second_guess, `Tagged by model version ${job.model_version}.`].filter(Boolean).join(" ");
   const list = labelList(job, labels);
-  line.append(text, more, button("Confirm", () => send(job, job.label)), " or ", list, " ", button("Save this label", () => send(job, list.value)));
+  line.append(photo(job), text, more, button("Confirm", () => send(job, job.label, line)), " or ", list, " ", button("Save this label", () => send(job, list.value, line)));
   jobs.append(line);
 }
 

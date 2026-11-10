@@ -15,13 +15,13 @@ def conn(tmp_path):
 
 
 def claimed_job(conn):
-    job_id = db.create_job(conn, "/x/cat.jpg", "A12")
+    job_id = db.create_job(conn, "cat.jpg", "A12")
     db.claim_job(conn)
     return job_id
 
 
 def test_new_job_has_no_version_yet(conn):
-    job_id = db.create_job(conn, "/x/cat.jpg")
+    job_id = db.create_job(conn, "cat.jpg")
     assert db.get_job(conn, job_id)["model_version"] is None
 
 
