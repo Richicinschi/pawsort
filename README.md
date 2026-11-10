@@ -24,7 +24,7 @@ python run_all.py
 
 Then open http://127.0.0.1:8000, fill in a camera site code, drop your photos on the box or click it to pick them, and press Upload photos. Ctrl+C stops all three servers.
 
-Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user. The website only sends a photo back on the review list and on the corrections page.
+Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user. The website only sends a photo back where a person has to look at it: on the review list, on the corrections page and in the weekly sample.
 
 The first photo can take a while, because the AI server loads the detector first. It can download the detector the very first time. Until then the page says "Still working...".
 
@@ -50,7 +50,7 @@ An older `data/pawsort.db` still works. Its jobs keep their tags but have no pho
 
 ## Photos of people
 
-A photo with the label person gets deleted at any confidence, so also under 80%. The middle server deletes it from `data/photos` as soon as it gets the label, from the AI server or from a user on the review list. An answer that comes too late gets refused, but then the job has already failed and its photo is already gone. It is the one exception to the needs review rule, so these jobs never get the mark. The job row keeps the label and the site code, and the name of the photo gets cleared once the file is gone. The page says that we deleted the photo.
+A photo with the label person gets deleted at any confidence, so also under 80%. The middle server deletes it from `data/photos` as soon as it gets the label, from the AI server or from a user. An answer that comes too late gets refused, but then the job has already failed and its photo is already gone. It is the one exception to the needs review rule, so these jobs never get the mark. The job row keeps the label and the site code, and the name of the photo gets cleared once the file is gone. The page says that we deleted the photo.
 
 The notice next to the upload button says which photos we keep and why, and that we delete photos of people and photos we could not check.
 
@@ -86,7 +86,7 @@ The kept versions in `models/versions` are files on this computer. They are not 
 
 http://127.0.0.1:8000/review lists every job with the needs review mark, the oldest first. A user can confirm the label or pick another one, and the job then leaves the list. The `reviews` table keeps the old label, the new label, the model version and the time. A confirmation is a row where the old and the new label are the same. The job state stays done, because a review changes the tag and not the state.
 
-The list shows the photo of every job, with the job, the camera site, the label and the percentage, and under it why the tag needs review, the second guess and the model version. The website passes a photo on only while its job is on the review list, so a sure tag never comes back as a picture. After a confirmation or a correction the photo stays on the middle server, but the page does not show it any more. The page then only takes that one job off the list and does not load the other photos again. If a user picks person, the rule for photos of people runs too and the photo is deleted at once.
+The list shows the photo of every job, with the job, the camera site, the label and the percentage, and under it why the tag needs review, the second guess and the model version. The review page gets a photo only while its job is on the review list. After a confirmation or a correction the photo stays on the middle server, but the page does not show it any more. The page then only takes that one job off the list and does not load the other photos again. If a user picks person, the rule for photos of people runs too and the photo is deleted at once.
 
 ## Why a tag needs review
 
@@ -109,6 +109,22 @@ python training/export_corrections.py --out data/corrections
 The script asks the middle server for the approved corrections that no training took yet. It saves each photo in the folder and writes `corrections.csv` with the job, the photo file, the right label and the model version. Then it tells the middle server which ones it took, so the next run does not fetch them again. A correction that still waits or that got rejected can never be in that folder. A correction without a photo is left out.
 
 The corrections page also counts the approved corrections that wait for a training. At 500 it says that it is time to plan a training round.
+
+## Numbers per camera site
+
+http://127.0.0.1:8000/numbers has a table with one row per camera site and week: the tags the model gave, the share that needed review, and the share of the checked tags that a person corrected. A week runs from Monday to Sunday and goes by the day of the upload, in UTC. A rejected correction does not count as corrected. A site and week with more than 40% needs review gets a warning on top of the page.
+
+The page also has a box "Time to plan a training round". It lists every reason that holds: 500 approved corrections wait for a training, a camera site sent its first photo after the current model was trained, or a site got a warning. The middle server reads the training date from `models/versions.json`, and `PAWSORT_VERSIONS` moves that file. The model in the repo has no training date there yet. Until somebody fills it in, the page says that it cannot tell which camera sites are new.
+
+## Weekly sample
+
+http://127.0.0.1:8000/sample shows up to 50 tags that the model was sure about, picked at random. Nobody looks at these tags otherwise, so this is how we find mistakes the model is sure about. A user confirms the label or picks another one. The answer is stored like a review and marked as coming from the sample. A changed label goes to the corrections page like any other correction. The page counts how many tags of the sample are checked and how many of those were changed. A change that the coordinator rejects later still counts as changed there.
+
+The sample belongs to a week, from Monday to Sunday in UTC. The middle server picks it the first time somebody opens the page in that week, from the sure tags that came in since the sample before, and it stays the same until the week is over. So when nobody opens the page for a week, no tag is lost, because these tags can still be picked the next time. A tag with the label person, a tag without a photo and a tag that a person already checked are never picked.
+
+Two things to know. When more than 50 sure tags came in, the ones that were not picked are not offered again, because the next sample only looks at the tags after this pick. And when the page is opened in a week in which no sure tag waits, that week's sample stays empty, also when tags come in later that week. They are in the sample of the week after.
+
+Both pages are meant for the team and have no login yet, and they say so.
 
 ## When something goes wrong
 

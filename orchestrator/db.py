@@ -26,7 +26,7 @@ def check_transition(old: str, new: str) -> None:
         raise InvalidTransition(f"{old} -> {new} is not allowed")
 
 
-def _now() -> str:
+def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -47,16 +47,20 @@ def connect(path: str) -> sqlite3.Connection:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS reviews (job_id TEXT PRIMARY KEY REFERENCES jobs (id), old_label TEXT NOT NULL, "
         "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL, decision TEXT, decided_at TEXT, "
-        "used_at TEXT)")
+        "used_at TEXT, source TEXT NOT NULL DEFAULT 'review')")
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(reviews)")}
-    for name in ("decision", "decided_at", "used_at"):
+    for name, kind in (("decision", "TEXT"), ("decided_at", "TEXT"), ("used_at", "TEXT"),
+                       ("source", "TEXT NOT NULL DEFAULT 'review'")):
         if name not in columns:
-            conn.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT")
+            conn.execute(f"ALTER TABLE reviews ADD COLUMN {name} {kind}")
+    conn.execute("CREATE TABLE IF NOT EXISTS picks (week TEXT PRIMARY KEY, picked_at TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS samples (job_id TEXT PRIMARY KEY REFERENCES jobs (id), "
+                 "week TEXT NOT NULL)")
     return conn
 
 
 def create_job(conn: sqlite3.Connection, photo_name: str, site_code: str | None = None) -> str:
-    job_id, now = str(uuid.uuid4()), _now()
+    job_id, now = str(uuid.uuid4()), utc_now()
     conn.execute("INSERT INTO jobs (id, photo_name, site_code, status, created_at, updated_at) "
                  "VALUES (?, ?, ?, 'new', ?, ?)", (job_id, photo_name, site_code, now, now))
     return job_id
@@ -73,7 +77,7 @@ def claim_job(conn: sqlite3.Connection) -> dict | None:
     try:
         row = conn.execute("SELECT id FROM jobs WHERE status = 'new' ORDER BY created_at LIMIT 1").fetchone()
         if row is not None:
-            conn.execute("UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?", (_now(), row["id"]))
+            conn.execute("UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?", (utc_now(), row["id"]))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -88,7 +92,7 @@ def _move(conn: sqlite3.Connection, job_id: str, new_status: str, fields: dict) 
     check_transition(job["status"], new_status)
     sets = ", ".join(f"{k} = ?" for k in fields)
     moved = conn.execute(f"UPDATE jobs SET status = ?, {sets}, updated_at = ? WHERE id = ? AND status = ?",
-                         (new_status, *fields.values(), _now(), job_id, job["status"]))
+                         (new_status, *fields.values(), utc_now(), job_id, job["status"]))
     if moved.rowcount == 0:  # somebody else moved this job a moment ago
         raise InvalidTransition(f"{job['status']} -> {new_status} came too late")
 
@@ -150,18 +154,20 @@ def on_review_list(conn: sqlite3.Connection, job: dict) -> bool:
     return job["status"] == "done" and bool(job["needs_review"]) and get_review(conn, job["id"]) is None
 
 
-def save_review(conn: sqlite3.Connection, job_id: str, new_label: str) -> None:
+def save_review(conn: sqlite3.Connection, job_id: str, new_label: str, allowed=on_review_list,
+                source: str = "review") -> None:
     """Store what a person decided and change the tag in one transaction, so a job gets reviewed only once."""
     conn.execute("BEGIN IMMEDIATE")
     try:
         job = get_job(conn, job_id)
         if job is None:
             raise KeyError(job_id)
-        if not on_review_list(conn, job):
+        if not allowed(conn, job):
             raise NotOnReviewList(job_id)
-        conn.execute("INSERT INTO reviews (job_id, old_label, new_label, model_version, reviewed_at) "
-                     "VALUES (?, ?, ?, ?, ?)", (job_id, job["label"], new_label, job["model_version"], _now()))
-        conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (new_label, _now(), job_id))
+        conn.execute("INSERT INTO reviews (job_id, old_label, new_label, model_version, reviewed_at, source) "
+                     "VALUES (?, ?, ?, ?, ?, ?)",
+                     (job_id, job["label"], new_label, job["model_version"], utc_now(), source))
+        conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (new_label, utc_now(), job_id))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -191,10 +197,10 @@ def decide_correction(conn: sqlite3.Connection, job_id: str, decision: str) -> N
             raise KeyError(job_id)
         if not waits_for_decision(conn, job):
             raise NotWaiting(job_id)
-        conn.execute("UPDATE reviews SET decision = ?, decided_at = ? WHERE job_id = ?", (decision, _now(), job_id))
+        conn.execute("UPDATE reviews SET decision = ?, decided_at = ? WHERE job_id = ?", (decision, utc_now(), job_id))
         if decision == "rejected":
             old_label = get_review(conn, job_id)["old_label"]
-            conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (old_label, _now(), job_id))
+            conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (old_label, utc_now(), job_id))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -218,5 +224,5 @@ def mark_used(conn: sqlite3.Connection, job_ids: list[str]) -> int:
     taken = 0
     for job_id in job_ids:
         taken += conn.execute("UPDATE reviews SET used_at = ? WHERE job_id = ? AND decision = 'approved' "
-                              "AND used_at IS NULL", (_now(), job_id)).rowcount
+                              "AND used_at IS NULL", (utc_now(), job_id)).rowcount
     return taken

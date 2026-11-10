@@ -15,6 +15,8 @@ from interface.validation import MAX_BYTES, UploadError, check_site_code, valida
 PAGE = Path(__file__).parent / "static" / "index.html"
 REVIEW_PAGE = Path(__file__).parent / "static" / "review.html"
 CORRECTIONS_PAGE = Path(__file__).parent / "static" / "corrections.html"
+NUMBERS_PAGE = Path(__file__).parent / "static" / "numbers.html"
+SAMPLE_PAGE = Path(__file__).parent / "static" / "sample.html"
 PERSON_NOTE = "This photo shows a person, so we deleted it."
 WEAK_BOX = "The model saw something in this photo, but not clearly enough to say what it is."
 NO_SERVER = "We could not reach the server. Please try again."
@@ -23,6 +25,8 @@ REVIEW_ERRORS = {404: "We cannot find this job.", 409: "This job is already chec
                  422: "Please pick a label from the list."}
 DECISION_ERRORS = {404: "We cannot find this correction.", 409: "This correction already has a decision.",
                    422: "Please press Approve or Reject."}
+SAMPLE_ERRORS = {**REVIEW_ERRORS, 409: "This tag does not wait in the sample of this week. Somebody already checked "
+                                      "it, or it belongs to the sample of another week."}
 
 
 class Review(BaseModel):
@@ -86,11 +90,65 @@ def show_correction(job: dict) -> dict:
             "new_label": show_label(job["new_label"]), "model_version": job["model_version"] or "unknown"}
 
 
-def training_note(numbers: dict) -> str:
+def waiting_corrections(numbers: dict) -> str:
     waiting = numbers["for_training"]
     note = "1 approved correction waits" if waiting == 1 else f"{waiting} approved corrections wait"
-    note += " for the next training."
+    return note + " for the next training."
+
+
+def training_note(numbers: dict) -> str:
+    note = waiting_corrections(numbers)
     return note + " It is time to plan a training round." if numbers["plan_training"] else note
+
+
+def share(number: float) -> str:
+    """A share with all its decimals, so 40.48% never reads as 40% next to the words more than 40%."""
+    return f"{number * 100:.2f}".rstrip("0").rstrip(".") + "%"
+
+
+def show_numbers(row: dict) -> dict:
+    corrected = "no tag checked yet"
+    if row["corrected"] is not None:
+        corrected = f"{percent(row['corrected'])}% (of {row['checked']} checked)"
+    return {"site_code": row["site_code"] or "unknown", "week": row["week"], "tags": row["tags"],
+            "needs_review": share(row["needs_review"]), "corrected": corrected, "warning": row["warning"]}
+
+
+def site_warnings(numbers: dict) -> list[str]:
+    return [f"Camera site {row['site_code'] or 'unknown'}, week {row['week']}: {share(row['needs_review'])} of "
+            f"the tags needed review. That is more than {share(numbers['warn_share'])}."
+            for row in numbers["rows"] if row["warning"]]
+
+
+def training_reasons(numbers: dict) -> list[str]:
+    """Every reason that holds right now to plan a training round: AI-09."""
+    reasons = [waiting_corrections(numbers)] if numbers["plan_training"] else []
+    reasons += [f"Camera site {site} is new: its first photo came after the current model was trained on "
+                f"{numbers['trained_on']}." for site in numbers["new_sites"]]
+    reasons += [f"Camera site {row['site_code'] or 'unknown'} had more than {share(numbers['warn_share'])} "
+                f"needs review in week {row['week']}." for row in numbers["rows"] if row["warning"]]
+    return reasons
+
+
+def trained_note(numbers: dict) -> str:
+    if numbers["trained_on"]:
+        return f"The current model was trained on {numbers['trained_on']}."
+    return "We do not know when the current model was trained, so this page cannot tell which camera sites are new."
+
+
+def show_sample_job(job: dict) -> dict:
+    return {"job_id": job["id"], "site_code": job["site_code"] or "unknown", "label": job["label"],
+            "label_text": show_label(job["label"]), "percent": percent(job["probability"]),
+            "model_version": job["model_version"] or "unknown"}
+
+
+def sample_note(sample: dict) -> str:
+    if not sample["picked"]:
+        return (f"Sample of week {sample['week']}: no sure tag came in since the sample before, "
+                "so there is nothing to check.")
+    tags = "1 sure tag" if sample["picked"] == 1 else f"{sample['picked']} sure tags"
+    return (f"Sample of week {sample['week']}: {tags} picked, {sample['checked']} of them checked, "
+            f"{sample['changed']} of those changed.")
 
 
 def create_app(orch: httpx.Client) -> FastAPI:
@@ -186,6 +244,34 @@ def create_app(orch: httpx.Client) -> FastAPI:
     def decide(job_id: uuid.UUID, body: Decision):
         numbers = ask("POST", f"/corrections/{job_id}", DECISION_ERRORS, json={"decision": body.decision})
         return {"note": training_note(numbers)}
+
+    @app.get("/numbers", response_class=HTMLResponse)
+    def numbers_page():
+        return NUMBERS_PAGE.read_text(encoding="utf-8")
+
+    @app.get("/numbers/rows")
+    def numbers_rows():
+        numbers = ask("GET", "/numbers")
+        return {"rows": [show_numbers(row) for row in numbers["rows"]], "warnings": site_warnings(numbers),
+                "reasons": training_reasons(numbers), "trained": trained_note(numbers)}
+
+    @app.get("/sample", response_class=HTMLResponse)
+    def sample_page():
+        return SAMPLE_PAGE.read_text(encoding="utf-8")
+
+    @app.get("/sample/jobs")
+    def sample_jobs():
+        sample = ask("GET", "/sample")
+        return {"jobs": [show_sample_job(job) for job in sample["jobs"]], "note": sample_note(sample),
+                "labels": [{"value": label, "text": show_label(label)} for label in sample["labels"]]}
+
+    @app.get("/sample/{job_id}/photo")
+    def sample_photo(job_id: uuid.UUID):
+        return pass_photo(f"/sample/{job_id}/photo")
+
+    @app.post("/sample/{job_id}")
+    def sample_answer(job_id: uuid.UUID, body: Review):
+        return show_job(ask("POST", f"/sample/{job_id}", SAMPLE_ERRORS, json={"label": body.label}))
 
     return app
 

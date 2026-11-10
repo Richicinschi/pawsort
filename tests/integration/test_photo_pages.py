@@ -29,7 +29,7 @@ def test_notice_says_which_photos_we_keep_and_why(notice):
 
 def test_notice_says_that_photos_of_people_are_deleted(notice):
     assert "A photo that shows a person is deleted at once, whatever the percentage is" in notice
-    assert "also when somebody picks person on the review list" in notice
+    assert "also when one of us marks it as a photo of a person" in notice
 
 
 def test_notice_says_that_a_photo_we_could_not_check_is_deleted(notice):

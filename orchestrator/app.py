@@ -1,4 +1,5 @@
 """Orchestrator: the single meeting point between the interface and the AI server. It also keeps the photos."""
+import json
 import os
 import sqlite3
 import threading
@@ -10,7 +11,7 @@ from typing import Literal
 from fastapi import FastAPI, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
-from orchestrator import db
+from orchestrator import db, numbers
 
 
 LABELS = {"empty", "person", "badger", "bird", "bobcat", "car", "cat", "cow", "coyote", "deer", "dog", "fox", "lizard",
@@ -58,7 +59,8 @@ def delete_photo(path: str, wait: float = 0.1) -> bool:
 
 
 def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SECONDS,
-               check_every: float = CHECK_EVERY, training_round: int = db.TRAINING_ROUND) -> FastAPI:
+               check_every: float = CHECK_EVERY, training_round: int = db.TRAINING_ROUND,
+               versions_path: str = "models/versions.json") -> FastAPI:
     os.makedirs(photo_dir, exist_ok=True)
 
     def open_db():
@@ -99,6 +101,31 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
     def training_numbers(conn: sqlite3.Connection) -> dict:
         waiting = len(db.for_training(conn))
         return {"for_training": waiting, "plan_training": waiting >= training_round}
+
+    def trained_on() -> str | None:
+        try:
+            with open(versions_path, encoding="utf-8") as f:
+                versions = json.load(f)
+            return versions["versions"][versions["current"]]["trained_on"]
+        except (OSError, KeyError, ValueError):
+            return None
+
+    def answer(job_id: str, label: str, save) -> dict:
+        if label not in LABELS:
+            raise HTTPException(422, "label must be a known label")
+        conn = open_db()
+        try:
+            job = db.get_job(conn, job_id)
+            save(conn, job_id, label)
+            if label == db.PERSON:  # FR-14: also when a user changes the label
+                drop_photo(conn, job)
+            return {**db.get_job(conn, job_id), "review": db.get_review(conn, job_id)}
+        except KeyError:
+            raise HTTPException(404, "Unknown job")
+        except db.NotOnReviewList:
+            raise HTTPException(409, "This job does not wait for an answer here")
+        finally:
+            conn.close()
 
     def fail_stuck_jobs() -> None:
         conn = open_db()
@@ -203,21 +230,7 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
 
     @app.post("/jobs/{job_id}/review")
     def review(job_id: str, body: Review):
-        if body.label not in LABELS:
-            raise HTTPException(422, "label must be a known label")
-        conn = open_db()
-        try:
-            job = db.get_job(conn, job_id)
-            db.save_review(conn, job_id, body.label)
-            if body.label == db.PERSON:  # FR-14: also when a user changes the label
-                drop_photo(conn, job)
-            return {**db.get_job(conn, job_id), "review": db.get_review(conn, job_id)}
-        except KeyError:
-            raise HTTPException(404, "Unknown job")
-        except db.NotOnReviewList:
-            raise HTTPException(409, "This job is not on the review list")
-        finally:
-            conn.close()
+        return answer(job_id, body.label, db.save_review)
 
     @app.get("/corrections")
     def corrections():
@@ -264,10 +277,40 @@ def create_app(db_path: str, photo_dir: str, stuck_seconds: float = db.STUCK_SEC
         finally:
             conn.close()
 
+    @app.get("/numbers")
+    def site_numbers():
+        conn = open_db()
+        try:
+            trained = trained_on()
+            return {"rows": numbers.site_numbers(conn), "warn_share": numbers.WARN_SHARE, "trained_on": trained,
+                    "new_sites": numbers.new_sites(conn, trained), **training_numbers(conn)}
+        finally:
+            conn.close()
+
+    @app.get("/sample")
+    def sample():
+        conn = open_db()
+        try:
+            week = numbers.this_week()
+            numbers.pick_sample(conn, week)
+            return {"week": week, "jobs": numbers.sample_jobs(conn, week), "labels": sorted(LABELS),
+                    **numbers.sample_numbers(conn, week)}
+        finally:
+            conn.close()
+
+    @app.get("/sample/{job_id}/photo")
+    def sample_photo(job_id: str):
+        return photo_if(job_id, numbers.in_sample)
+
+    @app.post("/sample/{job_id}")
+    def sample_answer(job_id: str, body: Review):
+        return answer(job_id, body.label, numbers.save_answer)
+
     return app
 
 
 def build_app() -> FastAPI:
     path = os.environ.get("PAWSORT_DB", "data/pawsort.db")
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    return create_app(path, os.environ.get("PAWSORT_PHOTOS", "data/photos"))
+    return create_app(path, os.environ.get("PAWSORT_PHOTOS", "data/photos"),
+                      versions_path=os.environ.get("PAWSORT_VERSIONS", "models/versions.json"))
