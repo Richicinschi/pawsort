@@ -1,0 +1,21 @@
+{
+  "current": "wildlife-1.0",
+  "previous": null,
+  "versions": {
+    "wildlife-1.0": {
+      "trained_on": null,
+      "training_data": "42379 crops from 130 camera sites, 18 labels, 8 epochs",
+      "report": {
+        "accuracy_known_sites": 0.8234,
+        "accuracy_new_sites": 0.7383,
+        "accuracy_when_sure": 0.8852,
+        "sure_known_sites": 0.7895,
+        "sure_new_sites": 0.7036,
+        "animals_called_empty_known_sites": 0.0991,
+        "animals_called_empty_new_sites": 0.1243,
+        "lowest_recall_known_sites": null,
+        "lowest_recall_new_sites": null
+      }
+    }
+  }
+}
