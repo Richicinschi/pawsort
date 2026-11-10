@@ -19,7 +19,8 @@ def test_animal_box_goes_to_the_classifier():
 
 def test_weak_box_is_empty_but_goes_to_a_person():
     scores = decide({"category": "1", "conf": 0.19, "bbox": [0, 0, 1, 1]}, classify)
-    assert format_result(scores) == {"label": "empty", "probability": 0.5, "needs_review": True}
+    assert format_result(scores) == {"label": "empty", "probability": 0.5, "needs_review": True,
+                                     "second_label": None, "second_probability": None}
 
 
 def test_box_of_exactly_the_limit_is_not_weak():

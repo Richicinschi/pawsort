@@ -31,10 +31,11 @@ def connect(path: str) -> sqlite3.Connection:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, image_path TEXT NOT NULL, status TEXT NOT NULL, "
         "label TEXT, probability REAL, needs_review INTEGER, error TEXT, site_code TEXT, model_version TEXT, "
-        "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        "second_label TEXT, second_probability REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
-    if "model_version" not in columns:  # a database from before this column
-        conn.execute("ALTER TABLE jobs ADD COLUMN model_version TEXT")
+    for name, kind in (("model_version", "TEXT"), ("second_label", "TEXT"), ("second_probability", "REAL")):
+        if name not in columns:  # a database from before this column
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS reviews (job_id TEXT PRIMARY KEY REFERENCES jobs (id), old_label TEXT NOT NULL, "
         "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL)")
@@ -80,9 +81,10 @@ def _move(conn: sqlite3.Connection, job_id: str, new_status: str, fields: dict) 
 
 
 def set_result(conn: sqlite3.Connection, job_id: str, label: str, probability: float, needs_review: bool,
-               model_version: str | None = None) -> None:
+               model_version: str | None = None, second_label: str | None = None,
+               second_probability: float | None = None) -> None:
     fields = {"label": label, "probability": probability, "needs_review": int(needs_review),
-              "model_version": model_version}
+              "model_version": model_version, "second_label": second_label, "second_probability": second_probability}
     if label == PERSON:  # FR-14: never waits for a review, and the row keeps nothing of the photo
         fields.update(needs_review=0, image_path="")
     _move(conn, job_id, "done", fields)
@@ -109,7 +111,8 @@ def fail_stuck_jobs(conn: sqlite3.Connection, seconds: float = STUCK_SECONDS) ->
 
 def review_list(conn: sqlite3.Connection) -> list[dict]:
     """All jobs a person still has to check, the oldest first."""
-    rows = conn.execute("SELECT id, site_code, label, probability FROM jobs WHERE status = 'done' AND needs_review = 1 "
+    rows = conn.execute("SELECT id, site_code, label, probability, second_label, second_probability, model_version "
+                        "FROM jobs WHERE status = 'done' AND needs_review = 1 "
                         "AND id NOT IN (SELECT job_id FROM reviews) ORDER BY created_at").fetchall()
     return [dict(row) for row in rows]
 
