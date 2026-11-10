@@ -5,7 +5,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from orchestrator import db
 
@@ -22,8 +22,10 @@ class NewJob(BaseModel):
 
 class JobResult(BaseModel):
     label: str | None = None
-    probability: float | None = None
+    probability: float | None = Field(None, ge=0, le=1)
     needs_review: bool | None = None
+    second_label: str | None = None
+    second_probability: float | None = Field(None, ge=0, le=1)
     error: str | None = None
     model_version: str | None = None
 
@@ -104,13 +106,16 @@ def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_ever
         if body.error is None and (body.label not in LABELS or body.probability is None
                                    or body.needs_review is None):
             raise HTTPException(422, "label must be a known label, with probability and needs_review")
+        if body.second_label is not None and (body.second_label not in LABELS or body.second_probability is None):
+            raise HTTPException(422, "second_label must be a known label, with second_probability")
         conn = open_db()
         try:
             job = db.get_job(conn, job_id)
             if body.error is not None:
                 db.set_failed(conn, job_id, body.error, body.model_version)
             else:
-                db.set_result(conn, job_id, body.label, body.probability, body.needs_review, body.model_version)
+                db.set_result(conn, job_id, body.label, body.probability, body.needs_review, body.model_version,
+                              body.second_label, body.second_probability)
                 if body.label == db.PERSON:  # FR-14: at any confidence, also if the AI server kept it
                     delete_photo(job["image_path"])
             return db.get_job(conn, job_id)

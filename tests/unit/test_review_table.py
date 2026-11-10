@@ -29,7 +29,8 @@ def test_list_has_only_the_marked_jobs(conn):
 
 def test_list_shows_no_path_to_a_photo(conn):
     finished_job(conn)
-    assert set(db.review_list(conn)[0]) == {"id", "site_code", "label", "probability"}
+    assert set(db.review_list(conn)[0]) == {"id", "site_code", "label", "probability", "second_label",
+                                            "second_probability", "model_version"}
 
 
 def test_oldest_job_comes_first_whatever_finished_first(conn):

@@ -146,7 +146,8 @@ def test_needs_review_never_shows_80_percent(ui, orch_client):
     orch_client.post(f"/jobs/{job_id}/result", json={"label": "bobcat", "probability": 0.7996, "needs_review": True})
 
     assert ui.get(f"/result/{job_id}").json() == {
-        "status": "done", "label": "bobcat", "percent": 79, "needs_review": True}
+        "status": "done", "label": "bobcat", "percent": 79, "needs_review": True,
+        "reason": "The model is less than 80% sure this is a bobcat.", "second_guess": None}
 
 
 def test_failed_job_shows_a_friendly_message(ui, orch_client):
@@ -159,7 +160,12 @@ def test_failed_job_shows_a_friendly_message(ui, orch_client):
 
 
 def test_unknown_job(ui):
-    assert ui.get("/result/nope").status_code == 404
+    assert ui.get(f"/result/{uuid.uuid4()}").status_code == 404
+
+
+@pytest.mark.parametrize("address", ["claim%3F", "nope"])
+def test_result_address_that_is_no_job_number_is_refused(ui, address):
+    assert ui.get(f"/result/{address}").status_code == 422
 
 
 def test_middle_server_down_keeps_no_photo(uploads):

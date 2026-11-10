@@ -16,19 +16,26 @@ def test_label_in_plain_words():
     assert show_label("mountain_lion") == "mountain lion"
 
 
+def listed(label, probability, site_code="A12"):
+    return {"id": "job-1", "site_code": site_code, "label": label, "probability": probability,
+            "second_label": "bobcat", "second_probability": 0.15, "model_version": "v7"}
+
+
 def test_list_row_keeps_the_real_label_for_the_answer():
-    row = show_review_job({"id": "job-1", "site_code": "A12", "label": "mountain_lion", "probability": 0.7996})
+    row = show_review_job(listed("mountain_lion", 0.7996))
     assert row == {"job_id": "job-1", "site_code": "A12", "label": "mountain_lion", "label_text": "mountain lion",
-                   "percent": 79}
+                   "percent": 79, "reason": "The model is less than 80% sure this is a mountain lion.",
+                   "second_guess": "Its second guess is a bobcat, 15% sure.", "model_version": "v7"}
 
 
 def test_list_row_without_a_site_code():
-    row = show_review_job({"id": "job-1", "site_code": None, "label": "deer", "probability": 0.5})
-    assert row["site_code"] == "unknown"
+    assert show_review_job(listed("deer", 0.5, site_code=None))["site_code"] == "unknown"
 
 
 def test_job_that_waits_for_a_person_shows_the_mark():
-    assert show_job(done("bobcat")) == {"status": "done", "label": "bobcat", "percent": 60, "needs_review": True}
+    assert show_job(done("bobcat")) == {
+        "status": "done", "label": "bobcat", "percent": 60, "needs_review": True,
+        "reason": "The model is less than 80% sure this is a bobcat.", "second_guess": None}
 
 
 def test_checked_job_loses_the_mark_and_the_percentage():

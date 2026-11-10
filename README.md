@@ -50,13 +50,21 @@ An older `data/pawsort.db` gets the new column by itself when the middle server 
 
 http://127.0.0.1:8000/review lists every job with the needs review mark, the oldest first. A user can confirm the label or pick another one, and the job then leaves the list. The `reviews` table keeps the old label, the new label, the model version and the time. A confirmation is a row where the old and the new label are the same. The job state stays done, because a review changes the tag and not the state.
 
-We delete every photo right after the check, so the list only shows the job, the camera site, the label and the percentage, and the page says this. If a user picks person, the rule for photos of people runs too.
+We delete every photo right after the check, so the list shows no photo, and the page says this. It shows the job, the camera site, the label and the percentage, and under it why the tag needs review, the second guess and the model version. If a user picks person, the rule for photos of people runs too.
+
+## Why a tag needs review
+
+The AI server also reports its second guess. That is the next most likely label of our MobileNet, with its score. Empty, person and a weak box have no second guess, because our MobileNet does not run for them. The middle server keeps the second guess in the job row, and an older `data/pawsort.db` gets the two new columns by itself.
+
+When a tag needs review, the page says why in one sentence that names the animal and the 80%, and then shows the second guess. For example: "The model is less than 80% sure this is a raccoon. Its second guess is a skunk, 21% sure." A photo with only a weak box gets its own sentence: "The model saw something in this photo, but not clearly enough to say what it is." The website server makes these sentences, so unit tests check the exact words.
 
 ## When something goes wrong
 
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.
 
 When the middle server answers with an error, the AI server writes it down, waits a second and carries on. An answer that comes after the 30 seconds gets refused, so a failed job stays failed.
+
+The middle server also refuses an answer with a confidence under 0 or over 1. It answers with 422 and stores nothing, so the job stays in processing until a good answer comes or the 30 seconds are over.
 
 ## Energy
 
@@ -82,3 +90,5 @@ python -m pytest -q
 ```
 
 Unit tests are in `tests/unit/` and integration tests are in `tests/integration/`.
+
+One integration test runs two AI workers at the same time on one middle server. It checks that every job is done exactly once and that no job goes to both workers.

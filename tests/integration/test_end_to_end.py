@@ -38,6 +38,17 @@ def test_real_model_reports_the_version_next_to_it(orch_client, copy_photo, pred
     assert orch_client.get(f"/jobs/{job_id}").json()["model_version"] == version
 
 
+def test_real_model_gives_an_animal_a_second_guess_and_an_empty_photo_none(orch_client, copy_photo, predict):
+    bobcat = orch_client.post("/jobs", json={"image_path": copy_photo("bobcat_1.jpg")}).json()["id"]
+    empty = orch_client.post("/jobs", json={"image_path": copy_photo("empty_1.jpg")}).json()["id"]
+    process_one(orch_client, predict)
+    process_one(orch_client, predict)
+
+    job = orch_client.get(f"/jobs/{bobcat}").json()
+    assert job["second_label"] not in (None, "bobcat") and 0 < job["second_probability"] < job["probability"]
+    assert orch_client.get(f"/jobs/{empty}").json()["second_label"] is None
+
+
 def test_upload_on_the_website_to_answer_on_the_page(orch_client, tmp_path, predict):
     ui = TestClient(create_app(orch_client, str(tmp_path / "uploads")))
     with open(os.path.join(DATA, "bobcat_1.jpg"), "rb") as f:

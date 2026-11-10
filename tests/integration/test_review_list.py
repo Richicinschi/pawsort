@@ -1,5 +1,6 @@
 import io
 import os
+import uuid
 from datetime import datetime
 
 import httpx
@@ -51,7 +52,9 @@ def test_list_shows_the_job_site_label_and_percentage(ui, orch_client):
     job_id = marked_job(ui, orch_client, "mountain_lion", 0.7996, "B7")
 
     assert ui.get("/review/jobs").json()["jobs"] == [{
-        "job_id": job_id, "site_code": "B7", "label": "mountain_lion", "label_text": "mountain lion", "percent": 79}]
+        "job_id": job_id, "site_code": "B7", "label": "mountain_lion", "label_text": "mountain lion", "percent": 79,
+        "reason": "The model is less than 80% sure this is a mountain lion.", "second_guess": None,
+        "model_version": "wildlife-9"}]
 
 
 def test_list_never_gives_away_where_the_photo_was(ui, orch_client):
@@ -138,8 +141,18 @@ def test_second_click_is_refused_and_the_first_answer_stays(ui, orch_client):
 
 
 def test_unknown_job(ui):
-    r = decide(ui, "nope", "coyote")
+    r = decide(ui, str(uuid.uuid4()), "coyote")
     assert r.status_code == 404 and "find this job" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("address", ["claim%3F", "nope"])
+def test_address_that_is_no_job_number_never_reaches_the_middle_server(ui, orch_client, address):
+    waiting = upload(ui)
+
+    r = ui.post(f"/review/{address}", json={"label": "coyote"})
+
+    assert r.status_code == 422
+    assert orch_client.get(f"/jobs/{waiting}").json()["status"] == "new"
 
 
 def test_job_still_in_progress_cannot_be_reviewed(ui, orch_client):
@@ -222,7 +235,7 @@ def test_middle_server_down_gets_a_friendly_message(tmp_path):
     down = httpx.Client(base_url="http://127.0.0.1:9", timeout=1)
     ui = TestClient(create_app(down, str(tmp_path / "uploads")))
 
-    for r in (ui.get("/review/jobs"), decide(ui, "job-1", "coyote")):
+    for r in (ui.get("/review/jobs"), decide(ui, str(uuid.uuid4()), "coyote")):
         assert r.status_code == 503 and "try again" in r.json()["detail"]
 
 
