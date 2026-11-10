@@ -28,6 +28,10 @@ class JobResult(BaseModel):
     model_version: str | None = None
 
 
+class Review(BaseModel):
+    label: str
+
+
 def delete_photo(path: str) -> None:
     try:
         os.remove(path)
@@ -89,11 +93,11 @@ def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_ever
         conn = open_db()
         try:
             job = db.get_job(conn, job_id)
+            if job is None:
+                raise HTTPException(404, "Unknown job")
+            return {**job, "review": db.get_review(conn, job_id)}
         finally:
             conn.close()
-        if job is None:
-            raise HTTPException(404, "Unknown job")
-        return job
 
     @app.post("/jobs/{job_id}/result")
     def result(job_id: str, body: JobResult):
@@ -114,6 +118,32 @@ def create_app(db_path: str, stuck_seconds: float = db.STUCK_SECONDS, check_ever
             raise HTTPException(404, "Unknown job")
         except db.InvalidTransition as exc:
             raise HTTPException(409, str(exc))
+        finally:
+            conn.close()
+
+    @app.get("/review")
+    def review_list():
+        conn = open_db()
+        try:
+            return {"jobs": db.review_list(conn), "labels": sorted(LABELS)}
+        finally:
+            conn.close()
+
+    @app.post("/jobs/{job_id}/review")
+    def review(job_id: str, body: Review):
+        if body.label not in LABELS:
+            raise HTTPException(422, "label must be a known label")
+        conn = open_db()
+        try:
+            job = db.get_job(conn, job_id)
+            db.save_review(conn, job_id, body.label)
+            if body.label == db.PERSON:  # FR-14: also when a user changes the label
+                delete_photo(job["image_path"])
+            return {**db.get_job(conn, job_id), "review": db.get_review(conn, job_id)}
+        except KeyError:
+            raise HTTPException(404, "Unknown job")
+        except db.NotOnReviewList:
+            raise HTTPException(409, "This job is not on the review list")
         finally:
             conn.close()
 

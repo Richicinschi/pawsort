@@ -12,6 +12,10 @@ class InvalidTransition(Exception):
     pass
 
 
+class NotOnReviewList(Exception):
+    pass
+
+
 def check_transition(old: str, new: str) -> None:
     if new not in TRANSITIONS.get(old, set()):
         raise InvalidTransition(f"{old} -> {new} is not allowed")
@@ -31,6 +35,9 @@ def connect(path: str) -> sqlite3.Connection:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
     if "model_version" not in columns:  # a database from before this column
         conn.execute("ALTER TABLE jobs ADD COLUMN model_version TEXT")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS reviews (job_id TEXT PRIMARY KEY REFERENCES jobs (id), old_label TEXT NOT NULL, "
+        "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL)")
     return conn
 
 
@@ -98,3 +105,35 @@ def fail_stuck_jobs(conn: sqlite3.Connection, seconds: float = STUCK_SECONDS) ->
         except InvalidTransition:
             pass  # the AI server answered just in time
     return photos
+
+
+def review_list(conn: sqlite3.Connection) -> list[dict]:
+    """All jobs a person still has to check, the oldest first."""
+    rows = conn.execute("SELECT id, site_code, label, probability FROM jobs WHERE status = 'done' AND needs_review = 1 "
+                        "AND id NOT IN (SELECT job_id FROM reviews) ORDER BY created_at").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_review(conn: sqlite3.Connection, job_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM reviews WHERE job_id = ?", (job_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def save_review(conn: sqlite3.Connection, job_id: str, new_label: str) -> None:
+    """Store what a person decided and change the tag in one transaction, so a job gets reviewed only once."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        job = get_job(conn, job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if job["status"] != "done" or not job["needs_review"] or get_review(conn, job_id):
+            raise NotOnReviewList(job_id)
+        conn.execute("INSERT INTO reviews (job_id, old_label, new_label, model_version, reviewed_at) "
+                     "VALUES (?, ?, ?, ?, ?)", (job_id, job["label"], new_label, job["model_version"], _now()))
+        image_path = "" if new_label == PERSON else job["image_path"]  # FR-14
+        conn.execute("UPDATE jobs SET label = ?, image_path = ?, updated_at = ? WHERE id = ?",
+                     (new_label, image_path, _now(), job_id))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
