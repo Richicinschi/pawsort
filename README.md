@@ -42,6 +42,12 @@ The version of the model sits in `models/model_version.txt`, right next to the m
 
 An older `data/pawsort.db` gets the new column by itself when the middle server starts, so you can keep your database.
 
+## Review list
+
+http://127.0.0.1:8000/review lists every job with the needs review mark, the oldest first. A user can confirm the label or pick another one, and the job then leaves the list. The `reviews` table keeps the old label, the new label, the model version and the time. A confirmation is a row where the old and the new label are the same. The job state stays done, because a review changes the tag and not the state.
+
+We delete every photo right after the check, so the list only shows the job, the camera site, the label and the percentage, and the page says this. If a user picks person, the rule for photos of people runs too.
+
 ## When something goes wrong
 
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.

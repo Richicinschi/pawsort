@@ -26,6 +26,7 @@
   <button type="submit">Upload photos</button>
   <p id="notice">We delete every photo right after it is checked, also when the check fails. A photo of a person is always deleted, whatever the percentage is. We do not store names or contact details.</p>
 </form>
+<p><a href="/review">See the jobs that need review</a></p>
 <p id="message" class="error"></p>
 <ul id="results" aria-live="polite"></ul>
 <script>
@@ -45,10 +46,10 @@ function show(answer, text, style = "") {
   answer.className = style;
 }
 
-function showTag(answer, job) {
-  const tag = `${job.label}, ${job.percent}% sure.`;
+function showTag(answer, job, jobId) {
+  const tag = job.reviewed ? `${job.label}, checked by a person.` : `${job.label}, ${job.percent}% sure.`;
   if (job.note) show(answer, `${tag} ${job.note}`);
-  else if (job.needs_review) show(answer, `${tag} Needs review: we are not sure, so a person should check this photo.`, "review");
+  else if (job.needs_review) show(answer, `${tag} Needs review: we are not sure, so a person should check this photo. It is job ${jobId.slice(0, 8)} on the review list.`, "review");
   else show(answer, tag);
 }
 
@@ -57,7 +58,7 @@ async function follow(answer, jobId) {
   while (true) {
     try {
       const job = await (await fetch(`/result/${jobId}`)).json();
-      if (job.status === "done") return showTag(answer, job);
+      if (job.status === "done") return showTag(answer, job, jobId);
       if (job.status === "failed") return show(answer, job.error, "error");
     } catch {
       // the server is restarting, so we ask again
