@@ -4,11 +4,28 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PawSort</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; }
-  label { display: block; margin-bottom: 1rem; }
-  input { display: block; margin-top: 0.25rem; }
-  #notice { color: #444; font-size: 0.95rem; }
-  #results { padding-left: 1.2rem; }
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1f2a24; background: #f5f4ee; }
+  h1 { color: #2f6b4f; margin-bottom: 0.25rem; }
+  form { background: #fff; border: 1px solid #dcdad0; border-radius: 0.75rem; padding: 1.25rem; }
+  label { display: block; margin-bottom: 1rem; font-weight: 600; }
+  #site { display: block; margin-top: 0.25rem; padding: 0.5rem; font: inherit; border: 1px solid #b9b7ab; border-radius: 0.4rem; width: 10rem; }
+  #drop { border: 2px dashed #8fb3a0; border-radius: 0.75rem; padding: 2rem 1rem; text-align: center; cursor: pointer; background: #f3f8f5; }
+  #drop.over, #drop:focus-within { border-color: #2f6b4f; background: #e3f0e9; }
+  #drop span { display: block; font-weight: 400; color: #555; }
+  #files { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  button { font: inherit; font-weight: 600; color: #fff; background: #2f6b4f; border: 0; border-radius: 0.4rem; padding: 0.6rem 1.25rem; cursor: pointer; }
+  button:disabled { background: #8fb3a0; cursor: wait; }
+  #notice { color: #444; font-size: 0.95rem; margin-bottom: 0; }
+  #summary span { display: inline-block; background: #fff; border: 1px solid #dcdad0; border-radius: 1rem; padding: 0.1rem 0.75rem; margin: 0 0.4rem 0.4rem 0; }
+  #results { list-style: none; padding: 0; }
+  #results li { display: flex; gap: 1rem; align-items: center; background: #fff; border: 1px solid #dcdad0; border-left: 0.4rem solid #2f6b4f; border-radius: 0.5rem; padding: 0.6rem; margin-bottom: 0.6rem; }
+  #results img { width: 6rem; height: 4.5rem; flex: none; object-fit: cover; border-radius: 0.3rem; background: #e4e2d8; }
+  #results img:not([src]) { visibility: hidden; }
+  #results strong { display: block; font-size: 1.15rem; }
+  #results small { display: block; color: #666; overflow-wrap: anywhere; }
+  #results li[data-state="working"] { border-left-color: #b9b7ab; }
+  #results li[data-state="review"] { border-left-color: #a15c00; }
+  #results li[data-state="error"] { border-left-color: #b00020; }
   .review { color: #a15c00; }
   .error { color: #b00020; }
 </style>
@@ -20,44 +37,97 @@
   <label>Camera site code, for example A12
     <input type="text" id="site" required>
   </label>
-  <label>Photos (JPEG or PNG, at most 10 MB each)
+  <label id="drop">
+    <strong id="chosen">Drop your photos here, or click to choose them</strong>
+    <span>JPEG or PNG, at most 10 MB each</span>
     <input type="file" id="files" accept="image/jpeg,image/png" multiple required>
   </label>
-  <button type="submit">Upload photos</button>
-  <p id="notice">We delete every photo right after it is checked, also photos of people, and we do not store names or contact details.</p>
+  <button type="submit" id="send">Upload photos</button>
+  <p id="notice">We delete every photo right after it is checked, also when the check fails. A photo of a person is always deleted, whatever the percentage is. We do not store names or contact details. The small pictures below come from your own computer, not from us.</p>
 </form>
+<p><a href="/review">See the jobs that need review</a></p>
 <p id="message" class="error"></p>
-<ul id="results" aria-live="polite"></ul>
+<p id="summary" aria-live="polite" hidden></p>
+<ul id="results"></ul>
 <script>
+const files = document.getElementById("files");
+const drop = document.getElementById("drop");
+const chosen = document.getElementById("chosen");
+const send = document.getElementById("send");
 const results = document.getElementById("results");
+const summary = document.getElementById("summary");
 const message = document.getElementById("message");
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+const many = (count) => count === 1 ? "1 photo" : `${count} photos`;
+const dropText = chosen.textContent;
 
-function addLine(name) {
-  const line = document.createElement("li");
-  line.append(`${name}: `, document.createElement("span"));
-  results.append(line);
-  return line.lastChild;
+function showChosen() {
+  chosen.textContent = files.files.length ? `${many(files.files.length)} chosen` : dropText;
 }
 
-function show(answer, text, style = "") {
-  answer.textContent = text;
-  answer.className = style;
+function chip(text, style = "") {
+  const item = document.createElement("span");
+  item.textContent = text;
+  item.className = style;
+  return item;
 }
 
-function showTag(answer, job) {
-  const tag = `${job.label}, ${job.percent}% sure.`;
-  if (job.needs_review) show(answer, `${tag} Needs review: we are not sure, so a person should check this photo.`, "review");
-  else show(answer, tag);
+function count() {
+  const states = {};
+  const labels = {};
+  for (const line of results.children) {
+    const { state, label } = line.dataset;
+    states[state] = (states[state] || 0) + 1;
+    if (label) labels[label] = (labels[label] || 0) + 1;
+  }
+  const chips = [chip(many(results.children.length))];
+  for (const [label, number] of Object.entries(labels).sort((a, b) => b[1] - a[1])) chips.push(chip(`${label} ${number}`));
+  if (states.working) chips.push(chip(`still working ${states.working}`));
+  if (states.review) chips.push(chip(`needs review ${states.review}`, "review"));
+  if (states.error) chips.push(chip(`not checked ${states.error}`, "error"));
+  summary.replaceChildren(...chips);
+  summary.hidden = false;
+}
+
+function addLine(file, name) {
+  const answer = document.createElement("li");
+  const picture = document.createElement("img");
+  picture.alt = "";
+  picture.loading = "lazy";
+  picture.src = URL.createObjectURL(file);
+  picture.addEventListener("error", () => picture.removeAttribute("src"));
+  const text = document.createElement("div");
+  const small = document.createElement("small");
+  small.textContent = name;
+  text.append(document.createElement("strong"), document.createElement("span"), small);
+  answer.append(picture, text);
+  results.append(answer);
+  return answer;
+}
+
+function show(answer, state, title, more = "") {
+  answer.dataset.state = state;
+  answer.querySelector("strong").textContent = title;
+  answer.querySelector("span").textContent = more;
+  count();
+}
+
+function showTag(answer, job, jobId) {
+  const tag = job.reviewed ? "Checked by a person." : `${job.percent}% sure.`;
+  answer.dataset.label = job.label;
+  if (job.label === "person") answer.querySelector("img").removeAttribute("src");
+  if (job.note) show(answer, "done", job.label, `${tag} ${job.note}`);
+  else if (job.needs_review) show(answer, "review", job.label, `${tag} Needs review: we are not sure, so a person should check this photo. It is job ${jobId.slice(0, 8)} on the review list.`);
+  else show(answer, "done", job.label, tag);
 }
 
 async function follow(answer, jobId) {
-  show(answer, "Still working...");
+  show(answer, "working", "Still working...");
   while (true) {
     try {
       const job = await (await fetch(`/result/${jobId}`)).json();
-      if (job.status === "done") return showTag(answer, job);
-      if (job.status === "failed") return show(answer, job.error, "error");
+      if (job.status === "done") return showTag(answer, job, jobId);
+      if (job.status === "failed") return show(answer, "error", "Not checked", job.error);
     } catch {
       // the server is restarting, so we ask again
     }
@@ -65,23 +135,39 @@ async function follow(answer, jobId) {
   }
 }
 
+files.addEventListener("change", showChosen);
+drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (event) => {
+  event.preventDefault();
+  drop.classList.remove("over");
+  files.files = event.dataTransfer.files;
+  showChosen();
+});
+
 document.getElementById("form").addEventListener("submit", async (event) => {
   event.preventDefault();
   message.textContent = "";
+  const picked = [...files.files];
   const body = new FormData();
   body.append("site_code", document.getElementById("site").value.trim());
-  for (const file of document.getElementById("files").files) body.append("files", file);
+  for (const file of picked) body.append("files", file);
+  send.disabled = true;
   try {
     const reply = await fetch("/upload", { method: "POST", body });
     const data = await reply.json();
     if (!reply.ok) { message.textContent = data.detail; return; }
-    for (const photo of data.photos) {
-      const answer = addLine(photo.file);
-      if (photo.error) show(answer, photo.error, "error");
+    data.photos.forEach((photo, place) => {
+      const answer = addLine(picked[place], photo.file);
+      if (photo.error) show(answer, "error", "Not checked", photo.error);
       else follow(answer, photo.job_id);
-    }
+    });
+    files.value = "";
+    showChosen();
   } catch {
     message.textContent = "We could not reach the website. Please try again.";
+  } finally {
+    send.disabled = false;
   }
 });
 </script>

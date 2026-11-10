@@ -13,6 +13,8 @@ python training/prepare_crops.py --data data --cache data/cache
 python training/train.py --data data --cache data/cache --save
 ```
 
+When you save a new model, also change the version in `models/model_version.txt`, because the AI server reports that version with every job.
+
 A quick check that everything still runs:
 
 ```

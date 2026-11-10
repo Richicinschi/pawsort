@@ -282,7 +282,7 @@
       "known_sites": 0.7566662454189309,
       "new_sites": 0.6453193501246454
     },
-    "crops_retrained_small_20_sites": {
+    "crops_retrained_small_10_sites": {
       "known_sites": 0.8103121445722229,
       "new_sites": 0.6962950227800223
     },

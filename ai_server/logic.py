@@ -1,5 +1,7 @@
 """Turning the scores into the answer the user sees. No torch here on purpose."""
 THRESHOLD = 0.80
+MIN_BOX = 0.2
+NOT_SURE = 0.5  # under the 80% rule, so the job goes to a person
 
 
 def needs_review(confidence: float, threshold: float = THRESHOLD) -> bool:
@@ -9,6 +11,8 @@ def needs_review(confidence: float, threshold: float = THRESHOLD) -> bool:
 def decide(found: dict | None, classify) -> dict[str, float]:
     if found is None:
         return {"empty": 1.0}
+    if found["conf"] < MIN_BOX:  # a weak box is often an animal, so a person has to check it
+        return {"empty": NOT_SURE}
     if found["category"] == "2":  # 2 is a person
         return {"person": 1.0}
     return classify(found["bbox"])
