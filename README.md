@@ -60,6 +60,28 @@ The version of the model sits in `models/model_version.txt`, right next to the m
 
 An older `data/pawsort.db` gets the new column by itself when the middle server starts, so you can keep your database.
 
+## Switching to a new model
+
+`models/versions.json` has one entry for every model version: the training date, one line about the training data, the file names and the test report. The test report holds the numbers we check our targets with: the accuracy on known and on new sites, the accuracy on the sure tags, the share of sure tags, the share of animals called empty, and the lowest recall of a label with 500 or more training crops. The entry of the current model comes from `results.json`. Two things are not in `results.json`, so they are empty: the training date, and the lowest recall, because `results.json` does not say how many training crops each label had.
+
+A new model only goes live through this script:
+
+```
+python training/switch_model.py data/new_model
+```
+
+The folder holds `pawsort_wildlife.pt`, `labels.json`, `model_version.txt`, `report.json` and `training_data.txt`. `training/README.md` says what goes into them. The script compares the new report with the current one, target by target. If the new model is worse on one target, the script refuses, names that target with both numbers and changes nothing. A target that only one of the two models measured cannot be compared, so the script refuses then too. When it accepts, it keeps the files of the old and of the new version in `models/versions`, puts the new model in place and adds its entry to `versions.json`.
+
+```
+python training/switch_model.py --back
+```
+
+This puts the version before in place again. After a switch, start the AI server again, because it reads the model and its version when it starts. The script says so too.
+
+If a switch stops in the middle, for example because the computer goes off, run the same command again. It then finishes the switch. The script never writes over a version it already keeps, so the copy of the old model stays good.
+
+The kept versions in `models/versions` are files on this computer. They are not in git, so `--back` only works on the computer where the switch was made.
+
 ## Review list
 
 http://127.0.0.1:8000/review lists every job with the needs review mark, the oldest first. A user can confirm the label or pick another one, and the job then leaves the list. The `reviews` table keeps the old label, the new label, the model version and the time. A confirmation is a row where the old and the new label are the same. The job state stays done, because a review changes the tag and not the state.
