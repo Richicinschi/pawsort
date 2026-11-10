@@ -10,8 +10,8 @@ def conn(tmp_path):
     return db.connect(str(tmp_path / "jobs.db"))
 
 
-def finished_job(conn, label="bobcat", probability=0.6, marked=True, version="v7", path="/x/cat.jpg"):
-    job_id = db.create_job(conn, path, "A12")
+def finished_job(conn, label="bobcat", probability=0.6, marked=True, version="v7", photo="cat.jpg"):
+    job_id = db.create_job(conn, photo, "A12")
     db.claim_job(conn)
     db.set_result(conn, job_id, label, probability, marked, version)
     return job_id
@@ -27,14 +27,15 @@ def test_list_has_only_the_marked_jobs(conn):
     assert on_the_list(conn) == [marked]
 
 
-def test_list_shows_no_path_to_a_photo(conn):
+def test_list_does_not_name_the_photo(conn):
     finished_job(conn)
-    assert set(db.review_list(conn)[0]) == {"id", "site_code", "label", "probability"}
+    assert set(db.review_list(conn)[0]) == {"id", "site_code", "label", "probability", "second_label",
+                                            "second_probability", "model_version"}
 
 
 def test_oldest_job_comes_first_whatever_finished_first(conn):
-    first = db.create_job(conn, "/x/1.jpg")
-    second = db.create_job(conn, "/x/2.jpg")
+    first = db.create_job(conn, "1.jpg")
+    second = db.create_job(conn, "2.jpg")
     db.claim_job(conn)
     db.claim_job(conn)
     db.set_result(conn, second, "bobcat", 0.6, True)
@@ -50,10 +51,10 @@ def test_list_goes_by_upload_time_and_not_by_the_order_in_the_table(conn):
 
 
 def test_failed_job_and_job_in_progress_are_not_on_the_list(conn):
-    failed = db.create_job(conn, "/x/1.jpg")
+    failed = db.create_job(conn, "1.jpg")
     db.claim_job(conn)
     db.set_failed(conn, failed, "broken photo")
-    db.create_job(conn, "/x/2.jpg")
+    db.create_job(conn, "2.jpg")
     db.claim_job(conn)
     assert on_the_list(conn) == []
 
@@ -124,17 +125,18 @@ def test_after_a_refusal_the_connection_still_works(conn):
     assert db.get_review(conn, marked) is not None
 
 
-def test_changing_to_person_clears_the_path(conn):
-    job_id = finished_job(conn, path="/x/secret.jpg")
+def test_photo_of_a_job_changed_to_person_has_to_go(conn):
+    job_id = finished_job(conn, photo="secret.jpg")
 
     db.save_review(conn, job_id, "person")
 
-    job = db.get_job(conn, job_id)
-    assert (job["label"], job["image_path"]) == ("person", "")
-    assert "secret.jpg" not in str(job) and "secret.jpg" not in str(db.get_review(conn, job_id))
+    assert db.get_job(conn, job_id)["label"] == "person"
+    assert db.unwanted_photos(conn) == [{"id": job_id, "photo_name": "secret.jpg"}]
+    assert "secret.jpg" not in str(db.get_review(conn, job_id))
 
 
-def test_other_corrections_keep_the_path(conn):
-    job_id = finished_job(conn, path="/x/cat.jpg")
+def test_other_corrections_keep_the_photo(conn):
+    job_id = finished_job(conn, photo="cat.jpg")
     db.save_review(conn, job_id, "coyote")
-    assert db.get_job(conn, job_id)["image_path"] == "/x/cat.jpg"
+    assert db.get_job(conn, job_id)["photo_name"] == "cat.jpg"
+    assert db.unwanted_photos(conn) == []

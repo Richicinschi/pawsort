@@ -19,6 +19,8 @@ def decide(found: dict | None, classify) -> dict[str, float]:
 
 
 def format_result(scores: dict[str, float], threshold: float = THRESHOLD) -> dict:
-    label = max(scores, key=scores.get)
+    label, *others = sorted(scores, key=scores.get, reverse=True)
     confidence = scores[label]
-    return {"label": label, "probability": round(confidence, 4), "needs_review": needs_review(confidence, threshold)}
+    second = others[0] if others else None  # only step 2 gives more than one score
+    return {"label": label, "probability": round(confidence, 4), "needs_review": needs_review(confidence, threshold),
+            "second_label": second, "second_probability": round(scores[second], 4) if second else None}

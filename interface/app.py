@@ -1,11 +1,11 @@
-"""Interface server: talks to the user and to the orchestrator. Never to the AI server."""
+"""Interface server: talks to the user and to the orchestrator. Never to the AI server. It keeps no photo."""
 import io
 import os
 import uuid
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import HTMLResponse
 from PIL import Image
 from pydantic import BaseModel
@@ -15,7 +15,9 @@ from interface.validation import MAX_BYTES, UploadError, check_site_code, valida
 PAGE = Path(__file__).parent / "static" / "index.html"
 REVIEW_PAGE = Path(__file__).parent / "static" / "review.html"
 PERSON_NOTE = "This photo shows a person, so we deleted it."
+WEAK_BOX = "The model saw something in this photo, but not clearly enough to say what it is."
 NO_SERVER = "We could not reach the server. Please try again."
+NO_PHOTO = "There is no photo to check for this job."
 REVIEW_ERRORS = {404: "We cannot find this job.", 409: "This job is already checked.",
                  422: "Please pick a label from the list."}
 
@@ -32,6 +34,22 @@ def percent(probability: float) -> int:
     return int(round(probability * 100, 2))
 
 
+def with_article(label: str) -> str:
+    return f"{'an' if label[0] in 'aeiou' else 'a'} {show_label(label)}"
+
+
+def why_review(label: str) -> str:
+    if label == "empty":  # the model is only unsure about empty after a weak box
+        return WEAK_BOX
+    return f"The model is less than 80% sure this is {with_article(label)}."
+
+
+def second_guess(job: dict) -> str | None:
+    if not job.get("second_label"):
+        return None
+    return f"Its second guess is {with_article(job['second_label'])}, {percent(job['second_probability'])}% sure."
+
+
 def show_job(job: dict) -> dict:
     out = {"status": job["status"]}
     if job["status"] == "done":
@@ -40,6 +58,8 @@ def show_job(job: dict) -> dict:
             out.update(needs_review=False, reviewed=True)
         else:
             out.update(percent=percent(job["probability"]), needs_review=bool(job["needs_review"]))
+            if job["needs_review"]:
+                out.update(reason=why_review(job["label"]), second_guess=second_guess(job))
         if job["label"] == "person":
             out["note"] = PERSON_NOTE
     elif job["status"] == "failed":
@@ -49,23 +69,23 @@ def show_job(job: dict) -> dict:
 
 def show_review_job(job: dict) -> dict:
     return {"job_id": job["id"], "site_code": job["site_code"] or "unknown", "label": job["label"],
-            "label_text": show_label(job["label"]), "percent": percent(job["probability"])}
+            "label_text": show_label(job["label"]), "percent": percent(job["probability"]),
+            "reason": why_review(job["label"]), "second_guess": second_guess(job),
+            "model_version": job["model_version"] or "unknown"}
 
 
-def create_app(orch: httpx.Client, upload_dir: str) -> FastAPI:
-    os.makedirs(upload_dir, exist_ok=True)
+def create_app(orch: httpx.Client) -> FastAPI:
     app = FastAPI(title="PawSort")
 
-    def save_photo(data: bytes, site_code: str) -> str:
+    def send_photo(data: bytes, site_code: str) -> str:
         fmt = validate_upload(data)
-        name = f"{uuid.uuid4()}.{'jpg' if fmt == 'JPEG' else 'png'}"  # random name, never the user's
-        path = os.path.abspath(os.path.join(upload_dir, name))
-        Image.open(io.BytesIO(data)).save(path, format=fmt, quality="keep", comment=b"")  # drops all metadata: FR-04
+        clean = io.BytesIO()
+        Image.open(io.BytesIO(data)).save(clean, format=fmt, quality="keep", comment=b"")  # drops all metadata: FR-04
         try:
-            r = orch.post("/jobs", json={"image_path": path, "site_code": site_code})
+            r = orch.post("/jobs", data={"site_code": site_code},
+                          files={"photo": ("photo", clean.getvalue(), f"image/{fmt.lower()}")})
             r.raise_for_status()
         except httpx.HTTPError:
-            os.remove(path)
             raise UploadError("We could not save this photo right now. Please try again.")
         return r.json()["id"]
 
@@ -82,13 +102,13 @@ def create_app(orch: httpx.Client, upload_dir: str) -> FastAPI:
         photos = []
         for file in files:
             try:
-                photos.append({"file": file.filename, "job_id": save_photo(file.file.read(MAX_BYTES + 1), site_code)})
+                photos.append({"file": file.filename, "job_id": send_photo(file.file.read(MAX_BYTES + 1), site_code)})
             except UploadError as exc:
                 photos.append({"file": file.filename, "error": str(exc)})
         return {"photos": photos}
 
     @app.get("/result/{job_id}")
-    def result(job_id: str):
+    def result(job_id: uuid.UUID):  # only a real job number may go into an address of the middle server
         r = orch.get(f"/jobs/{job_id}")
         if r.status_code == 404:
             raise HTTPException(404, "Unknown job.")
@@ -110,8 +130,18 @@ def create_app(orch: httpx.Client, upload_dir: str) -> FastAPI:
         return {"jobs": [show_review_job(job) for job in body["jobs"]],
                 "labels": [{"value": label, "text": show_label(label)} for label in body["labels"]]}
 
+    @app.get("/review/{job_id}/photo")
+    def review_photo(job_id: uuid.UUID):
+        try:
+            r = orch.get(f"/review/{job_id}/photo")
+        except httpx.HTTPError:
+            raise HTTPException(503, NO_SERVER)
+        if r.is_error:  # the middle server only gives it out while the job is on the review list
+            raise HTTPException(404, NO_PHOTO)
+        return Response(r.content, media_type=r.headers["content-type"], headers={"Cache-Control": "no-store"})
+
     @app.post("/review/{job_id}")
-    def review(job_id: str, body: Review):
+    def review(job_id: uuid.UUID, body: Review):
         try:
             r = orch.post(f"/jobs/{job_id}/review", json={"label": body.label})
         except httpx.HTTPError:
@@ -127,4 +157,4 @@ def create_app(orch: httpx.Client, upload_dir: str) -> FastAPI:
 
 def build_app() -> FastAPI:
     orch = httpx.Client(base_url=os.environ.get("PAWSORT_ORCH", "http://127.0.0.1:8001"), timeout=10)
-    return create_app(orch, os.environ.get("PAWSORT_UPLOADS", "data/uploads"))
+    return create_app(orch)

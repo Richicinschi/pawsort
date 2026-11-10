@@ -2,7 +2,7 @@
  
 Upload camera trap photos and find out if each one is empty or which animal it shows, with a "needs review" flag when the model is not sure.
 
-PawSort is built from three servers: the interface (port 8000) talks to the orchestrator (port 8001, SQLite), and the AI server takes jobs from the orchestrator. The AI server works in two steps: MegaDetector finds the animal, then our MobileNet names it. The interface never talks to the AI server directly.
+PawSort is built from three servers: the interface (port 8000) talks to the orchestrator (port 8001, SQLite), and the AI server takes jobs from the orchestrator. The AI server works in two steps: MegaDetector finds the animal, then our MobileNet names it. The interface never talks to the AI server directly. The orchestrator, which we call the middle server, is the only one that keeps photos.
 
 ## Setup
 
@@ -24,7 +24,7 @@ python run_all.py
 
 Then open http://127.0.0.1:8000, fill in a camera site code, drop your photos on the box or click it to pick them, and press Upload photos. Ctrl+C stops all three servers.
 
-Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user, so the website still never sends a photo back.
+Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user. The website only sends a photo back on the review list.
 
 The first photo can take a while, because the AI server loads the detector first. It can download the detector the very first time. Until then the page says "Still working...".
 
@@ -32,13 +32,27 @@ The first photo can take a while, because the AI server loads the detector first
 
 The website refuses a file and says why when it is empty, larger than 10 MB, not a JPEG or PNG, cannot be opened, smaller than 128 x 128 pixels or larger than 6000 x 6000 pixels. The other photos of the same upload still go through.
 
-The website removes all metadata from a photo, so also the location data, and saves it under a random name in `data/uploads`. The website never serves that folder.
+The website removes all metadata from a photo, so also the location data. It does this in memory and then sends the photo to the middle server. The website keeps nothing on disk. Only an upload of more than 1 MB waits in a temporary file of the web framework while it comes in, and that file is gone when the upload is done. The same holds for the middle server when it takes the photo from the website.
+
+## Where the photos are
+
+The middle server saves a photo under a random name in `data/photos`, and the job row keeps only that name. To make a job, the website sends the photo itself and the site code. So no request can make a job for a file somewhere else, and nobody can ask for a photo by its name.
+
+The AI server gets a working copy. It claims a job, asks the middle server for the photo of that job and puts the copy in its own folder `data/work`. The middle server only gives the copy while the job is in processing. The AI server deletes the copy right after the check, also when the check fails. Every copy has a name that ends on `.copy`. When the AI server starts, it first deletes the copies that are still in `data/work`, so a copy from before a crash goes too. It deletes nothing else in that folder.
+
+A photo stays on the middle server when its job is done and the label is not person, because we need these photos for the review and for the next training. A job that fails keeps no photo: the middle server deletes it when the AI server reports an error and when a job got stuck. A failed job has no tag and never comes on the review list, so we have no use for its photo, and it could show a person.
+
+The row of a job forgets the name of its photo only when the file is really gone. If a delete does not work, the middle server tries a few times, and at its next start it deletes every photo that still belongs to a failed job or to a job with the label person.
+
+The three servers do not need the same disk any more. A second AI server on the same computer needs its own working folder, because every AI server deletes the copies in its folder when it starts. Set `PAWSORT_WORK` for it, for example to `data/work2`. `PAWSORT_PHOTOS` moves the photo folder of the middle server.
+
+An older `data/pawsort.db` still works. Its jobs keep their tags but have no photo, because back then we deleted every photo. A job that was still waiting at the upgrade ends as failed, so upload that photo again. The old folder `data/uploads` is not used any more and you can delete it after the upgrade.
 
 ## Photos of people
 
-A photo with the label person gets deleted at any confidence, so also under 80%. The middle server does this as soon as it gets the label, even if the AI server did not delete the photo. It is the one exception to the needs review rule, so these jobs never get the mark. The job row keeps the label and the site code, and the path to the photo gets cleared. The page says that we deleted the photo.
+A photo with the label person gets deleted at any confidence, so also under 80%. The middle server deletes it from `data/photos` as soon as it gets the label, from the AI server or from a user on the review list. An answer that comes too late gets refused, but then the job has already failed and its photo is already gone. It is the one exception to the needs review rule, so these jobs never get the mark. The job row keeps the label and the site code, and the name of the photo gets cleared once the file is gone. The page says that we deleted the photo.
 
-The AI server still deletes every other photo right after the check, so the notice next to the upload button says that we delete every photo.
+The notice next to the upload button says which photos we keep and why, and that we delete photos of people and photos we could not check.
 
 ## Model version
 
@@ -50,13 +64,21 @@ An older `data/pawsort.db` gets the new column by itself when the middle server 
 
 http://127.0.0.1:8000/review lists every job with the needs review mark, the oldest first. A user can confirm the label or pick another one, and the job then leaves the list. The `reviews` table keeps the old label, the new label, the model version and the time. A confirmation is a row where the old and the new label are the same. The job state stays done, because a review changes the tag and not the state.
 
-We delete every photo right after the check, so the list only shows the job, the camera site, the label and the percentage, and the page says this. If a user picks person, the rule for photos of people runs too.
+The list shows the photo of every job, with the job, the camera site, the label and the percentage, and under it why the tag needs review, the second guess and the model version. The website passes a photo on only while its job is on the review list, so a sure tag never comes back as a picture. After a confirmation or a correction the photo stays on the middle server, but the page does not show it any more. The page then only takes that one job off the list and does not load the other photos again. If a user picks person, the rule for photos of people runs too and the photo is deleted at once.
+
+## Why a tag needs review
+
+The AI server also reports its second guess. That is the next most likely label of our MobileNet, with its score. Empty, person and a weak box have no second guess, because our MobileNet does not run for them. The middle server keeps the second guess in the job row, and an older `data/pawsort.db` gets the two new columns by itself.
+
+When a tag needs review, the page says why in one sentence that names the animal and the 80%, and then shows the second guess. For example: "The model is less than 80% sure this is a raccoon. Its second guess is a skunk, 21% sure." A photo with only a weak box gets its own sentence: "The model saw something in this photo, but not clearly enough to say what it is." The website server makes these sentences, so unit tests check the exact words.
 
 ## When something goes wrong
 
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.
 
 When the middle server answers with an error, the AI server writes it down, waits a second and carries on. An answer that comes after the 30 seconds gets refused, so a failed job stays failed.
+
+The middle server also refuses an answer with a confidence under 0 or over 1. It answers with 422 and stores nothing, so the job stays in processing until a good answer comes or the 30 seconds are over.
 
 ## Energy
 
@@ -68,6 +90,8 @@ We measured with CodeCarbon on our own PC, with the Dutch grid of 268 g CO2 per 
 | One training run | about 32 to 44 Wh | about 9 to 12 g |
 | 1,000 jobs through the middle server, without the AI | 0.5 Wh | 0.1 g |
 | A PC that just waits, per hour | about 63 Wh | about 17 g |
+
+We measured the row for the middle server before it kept the photos. It now also saves every photo, and one quick run on a busy PC gave about 0.6 Wh and 0.2 g.
 
 To measure it yourself, close everything else first, because CodeCarbon counts all the work of the PC. Then run this from the main folder of the project:
 
@@ -82,3 +106,5 @@ python -m pytest -q
 ```
 
 Unit tests are in `tests/unit/` and integration tests are in `tests/integration/`.
+
+One integration test runs two AI workers at the same time on one middle server. It checks that every job is done exactly once and that no job goes to both workers.
