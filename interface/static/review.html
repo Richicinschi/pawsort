@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PawSort review list</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; }
+  #limit { color: #444; font-size: 0.95rem; }
+  #jobs { padding-left: 1.2rem; }
+  #jobs li { margin-bottom: 1.25rem; }
+  #jobs p { margin: 0 0 0.25rem; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+<h1>Needs review</h1>
+<p>The model is less than 80% sure about these jobs, so a person has to check them. The oldest job is on top. Confirm the label if it is right, or pick the right label from the list.</p>
+<p id="limit">We delete every photo right after it is checked, so we cannot show you the photo here. You only see the job, the camera site, the label and the percentage. To decide, you need your own copy of the photo or what you know about that camera.</p>
+<p><a href="/">Back to the upload page</a></p>
+<p id="message"></p>
+<p id="empty" hidden>Nothing to check right now.</p>
+<ul id="jobs"></ul>
+<script>
+const jobs = document.getElementById("jobs");
+const message = document.getElementById("message");
+const empty = document.getElementById("empty");
+const noServer = "We could not reach the website. Please try again.";
+
+function say(text, style = "") {
+  message.textContent = text;
+  message.className = style;
+}
+
+async function send(job, label) {
+  say("");
+  try {
+    const reply = await fetch(`/review/${job.job_id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    const data = await reply.json();
+    if (!reply.ok) say(data.detail, "error");
+    else if (data.note) say(data.note);
+  } catch {
+    say(noServer, "error");
+  }
+  load();
+}
+
+function button(text, click) {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.textContent = text;
+  item.addEventListener("click", click);
+  return item;
+}
+
+function labelList(job, labels) {
+  const list = document.createElement("select");
+  list.setAttribute("aria-label", "Right label");
+  for (const label of labels) list.add(new Option(label.text, label.value, false, label.value === job.label));
+  return list;
+}
+
+function addJob(job, labels) {
+  const line = document.createElement("li");
+  const text = document.createElement("p");
+  text.textContent = `Job ${job.job_id.slice(0, 8)}, camera site ${job.site_code}: ${job.label_text}, ${job.percent}% sure.`;
+  const list = labelList(job, labels);
+  line.append(text, button("Confirm", () => send(job, job.label)), " or ", list, " ", button("Save this label", () => send(job, list.value)));
+  jobs.append(line);
+}
+
+async function load() {
+  try {
+    const reply = await fetch("/review/jobs");
+    const data = await reply.json();
+    if (!reply.ok) return say(data.detail, "error");
+    jobs.replaceChildren();
+    for (const job of data.jobs) addJob(job, data.labels);
+    empty.hidden = data.jobs.length > 0;
+  } catch {
+    say(noServer, "error");
+  }
+}
+
+load();
+</script>
+</body>
+</html>
