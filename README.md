@@ -12,6 +12,8 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+Use pip for this and not uv. On a Mac uv reads the extra index line in `requirements.txt` differently and cannot install the right detector.
+
 ## Run
 
 From the main folder of the project:
@@ -53,6 +55,23 @@ We delete every photo right after the check, so the list only shows the job, the
 A job that stays in processing for more than 30 seconds goes to failed. The middle server looks for these jobs every second, also when the AI server is down, and it deletes the photo of that job. The page then shows the friendly message, and the next jobs in the queue just carry on.
 
 When the middle server answers with an error, the AI server writes it down, waits a second and carries on. An answer that comes after the 30 seconds gets refused, so a failed job stays failed.
+
+## Energy
+
+We measured with CodeCarbon on our own PC, with the Dutch grid of 268 g CO2 per kWh. CodeCarbon estimates the whole PC and not only our code, so these numbers are an upper bound.
+
+| Part | Energy | CO2 |
+|---|---|---|
+| Tagging 1,000 photos | about 66 Wh | about 18 g |
+| One training run | about 32 to 44 Wh | about 9 to 12 g |
+| 1,000 jobs through the middle server, without the AI | 0.5 Wh | 0.1 g |
+| A PC that just waits, per hour | about 63 Wh | about 17 g |
+
+To measure it yourself, close everything else first, because CodeCarbon counts all the work of the PC. Then run this from the main folder of the project:
+
+```
+python training/measure_energy.py --photos tests/data --count 30 --idle 60
+```
 
 ## Test
 
