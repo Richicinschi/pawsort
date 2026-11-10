@@ -112,12 +112,16 @@ function show(answer, state, title, more = "") {
   count();
 }
 
+function why(job) {
+  return [job.reason, job.second_guess].filter(Boolean).join(" ");
+}
+
 function showTag(answer, job, jobId) {
   const tag = job.reviewed ? "Checked by a person." : `${job.percent}% sure.`;
   answer.dataset.label = job.label;
   if (job.label === "person") answer.querySelector("img").removeAttribute("src");
   if (job.note) show(answer, "done", job.label, `${tag} ${job.note}`);
-  else if (job.needs_review) show(answer, "review", job.label, `${tag} Needs review: we are not sure, so a person should check this photo. It is job ${jobId.slice(0, 8)} on the review list.`);
+  else if (job.needs_review) show(answer, "review", job.label, `${tag} Needs review. ${why(job)} A person should check this photo. It is job ${jobId.slice(0, 8)} on the review list.`);
   else show(answer, "done", job.label, tag);
 }
 
