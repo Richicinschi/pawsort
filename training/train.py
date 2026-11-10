@@ -1,6 +1,7 @@
 """Retrain MobileNetV3-Small on the animal crops and score the whole two step system.
 
-Run: python training/train.py --cache data/cache --data data --save
+Run: python training/train.py --cache data/cache --data data --save data/new_model --version wildlife-1.1
+Add --corrections data/corrections to also learn from the approved corrections.
 Add --max-crops 500 --epochs 1 for a quick check that everything still runs.
 """
 import argparse
@@ -25,6 +26,9 @@ MIN_LABEL_CROPS = 20
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MEAN = torch.tensor([0.485, 0.456, 0.406], device=DEVICE).view(1, 3, 1, 1)
 STD = torch.tensor([0.229, 0.224, 0.225], device=DEVICE).view(1, 3, 1, 1)
+REFUSED = ("Refused: a training never writes into models, because a new model has to pass the switch first. "
+           "Save it into a folder of its own, for example --save data/new_model, "
+           "and then run python training/switch_model.py data/new_model")
 
 
 def load_part(cache, name):
@@ -52,14 +56,52 @@ def predict(net, pictures, rows=None):
     return np.concatenate(out)
 
 
+def check_candidate(folder: str, version: str | None) -> None:
+    live, wanted = os.path.realpath("models"), os.path.realpath(folder)
+    if wanted == live or wanted.startswith(live + os.sep):
+        raise SystemExit(REFUSED)
+    if not (version or "").strip():
+        raise SystemExit("Refused: the new model needs a name of its own, for example --version wildlife-1.1")
+
+
+def describe(parts: dict, cache: str, corrections: str | None, listed: int) -> list[str]:
+    """What a model was trained on, for training_data.txt. The first line says it in short."""
+    total, fixed = sum(parts.values()), parts.get("corrections", 0)
+    file = f"{corrections}/corrections.csv"
+    lines = [f"{total} crops: {total - fixed} from {cache} and "
+             + (f"{fixed} from the corrections in {file}" if corrections else "no corrections")]
+    lines += [f"{part}: {parts[part]} crops" for part in ("train", "cis_val", "sample") if part in parts]
+    if corrections:
+        lines.append(f"corrections: {fixed} crops from the {listed} corrections in {file}")
+    return lines
+
+
+def save_candidate(folder: str, version: str, state: dict, labels: list[str], results: dict, label_crops: dict,
+                   training_data: list[str]) -> None:
+    """Write everything training/switch_model.py reads into a folder of its own. Never into the live model."""
+    check_candidate(folder, version)
+    os.makedirs(folder, exist_ok=True)
+    torch.save(state, os.path.join(folder, "pawsort_wildlife.pt"))
+    report = {**results, "trained_on": time.strftime("%Y-%m-%d"), "label_crops": label_crops}
+    texts = {"labels.json": json.dumps(labels), "model_version.txt": version.strip() + "\n",
+             "report.json": json.dumps(report, indent=2), "training_data.txt": "\n".join(training_data) + "\n"}
+    for name, text in texts.items():
+        with open(os.path.join(folder, name), "w", encoding="utf-8") as f:
+            f.write(text)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="data")
     parser.add_argument("--cache", default="data/cache")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--max-crops", type=int, default=0)
-    parser.add_argument("--save", action="store_true")
+    parser.add_argument("--corrections", help="folder of export_corrections.py, after correction_crops.py")
+    parser.add_argument("--save", help="folder for the new model, never models itself")
+    parser.add_argument("--version", help="name of the new model version, needed with --save")
     args = parser.parse_args()
+    if args.save:
+        check_candidate(args.save, args.version)
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)
@@ -69,19 +111,28 @@ def main():
     sequences = sorted({m["seq"] for m in val_meta})
     random.shuffle(sequences)
     to_train = set(sequences[: len(sequences) // 2])  # a burst never sits on both sides
-    sources = [(train_pictures, i, m["label"]) for i, m in enumerate(train_meta) if m["label"] != "empty"]
-    sources += [(val_pictures, i, m["label"]) for i, m in enumerate(val_meta) if m["label"] != "empty" and m["seq"] in to_train]
+    sources = [(train_pictures, i, m["label"], "train") for i, m in enumerate(train_meta) if m["label"] != "empty"]
+    sources += [(val_pictures, i, m["label"], "cis_val") for i, m in enumerate(val_meta)
+                if m["label"] != "empty" and m["seq"] in to_train]
     check = [(i, m["label"]) for i, m in enumerate(val_meta) if m["label"] != "empty" and m["seq"] not in to_train]
     if os.path.exists(os.path.join(args.cache, "sample.npy")):
         extra_pictures, extra_meta = load_part(args.cache, "sample")
-        sources += [(extra_pictures, i, m["label"]) for i, m in enumerate(extra_meta)]
+        sources += [(extra_pictures, i, m["label"], "sample") for i, m in enumerate(extra_meta)]
     if args.max_crops:
         random.shuffle(sources)
         sources = sources[: args.max_crops]
+    listed = 0
+    if args.corrections:  # after the cut above, so a quick run keeps every correction
+        with open(os.path.join(args.corrections, "corrections.csv"), encoding="utf-8") as f:
+            listed = sum(1 for _ in f) - 1
+        if os.path.exists(os.path.join(args.corrections, "crops.npy")):
+            fixed_pictures, fixed_meta = load_part(args.corrections, "crops")
+            sources += [(fixed_pictures, i, m["label"], "corrections") for i, m in enumerate(fixed_meta)]
     counts = collections.Counter(s[2] for s in sources)
     labels = sorted(c for c, n in counts.items() if n >= (MIN_LABEL_CROPS if not args.max_crops else 1))
     index = {c: i for i, c in enumerate(labels)}
     sources = [s for s in sources if s[2] in index]
+    training_data = describe(collections.Counter(s[3] for s in sources), args.cache, args.corrections, listed)
     print("crops", len(sources), "labels", len(labels), "on", DEVICE, flush=True)
 
     net = models.mobilenet_v3_small(weights="IMAGENET1K_V1")
@@ -124,11 +175,9 @@ def main():
         results[key] = evaluate(full, {m["name"]: i for i, m in enumerate(meta)}, split_photos(args.data, name), labels + ["empty"], boxes)
         print(key, "accuracy", round(results[key]["accuracy"], 3), "bursts", round(results[key]["burst_accuracy"], 3), flush=True)
     if args.save:
-        torch.save(best_state, "models/pawsort_wildlife.pt")
-        with open("models/labels.json", "w", encoding="utf-8") as f:
-            json.dump(labels, f)
-        with open("training/last_run.json", "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2)
+        save_candidate(args.save, args.version, best_state, labels, results, {c: counts[c] for c in labels},
+                       training_data)
+        print(f"saved {args.version} in {args.save}, now run: python training/switch_model.py {args.save}")
 
 
 if __name__ == "__main__":

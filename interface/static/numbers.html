@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PawSort numbers</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1f; background: #f4f1ea; }
+  h1 { color: #1a1a1f; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
+  a { color: #1a1a1f; text-decoration: underline; }
+  #who { color: #55545f; font-size: 0.95rem; }
+  #plan { background: #fffdf8; border: 1px solid #d9d4c7; border-left: 0.4rem solid #ffc21a; border-radius: 0.5rem; padding: 0.75rem; }
+  #plan ul { margin: 0; padding-left: 1.2rem; }
+  #warnings { list-style: none; padding: 0; color: #8a5a00; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; background: #fffdf8; border: 1px solid #d9d4c7; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #d9d4c7; }
+  tr.warning td:first-child { border-left: 0.4rem solid #ffc21a; }
+  .error { color: #b3261e; }
+</style>
+</head>
+<body>
+<h1>Numbers per camera site</h1>
+<p>For every camera site and week: how many tags the model gave, which share of them needed review, and which share of the checked tags a person corrected. A week runs from Monday to Sunday and goes by the day of the upload. A site and week where too many tags needed review gets a warning on top.</p>
+<p id="who">This page is meant for the coordinator. There is no login yet, so everybody can use it.</p>
+<p><a href="/">Back to the upload page</a></p>
+<p id="message"></p>
+<div id="plan" hidden>
+  <h2>Time to plan a training round</h2>
+  <ul id="reasons"></ul>
+</div>
+<p id="calm" hidden>There is no reason to plan a training round right now.</p>
+<p id="trained"></p>
+<ul id="warnings"></ul>
+<p id="empty" hidden>No tags yet.</p>
+<table id="numbers" hidden>
+  <thead><tr><th>Camera site</th><th>Week</th><th>Tags</th><th>Needed review</th><th>Corrected</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+const message = document.getElementById("message");
+
+function lines(list, texts) {
+  list.replaceChildren(...texts.map((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    return item;
+  }));
+}
+
+function addRow(row) {
+  const line = document.createElement("tr");
+  line.className = row.warning ? "warning" : "";
+  for (const text of [row.site_code, row.week, row.tags, row.needs_review, row.corrected]) {
+    const cell = document.createElement("td");
+    cell.textContent = text;
+    line.append(cell);
+  }
+  document.getElementById("rows").append(line);
+}
+
+async function load() {
+  try {
+    const reply = await fetch("/numbers/rows");
+    const data = await reply.json();
+    if (!reply.ok) { message.textContent = data.detail; message.className = "error"; return; }
+    lines(document.getElementById("reasons"), data.reasons);
+    document.getElementById("plan").hidden = data.reasons.length === 0;
+    document.getElementById("calm").hidden = data.reasons.length > 0;
+    document.getElementById("trained").textContent = data.trained;
+    lines(document.getElementById("warnings"), data.warnings);
+    data.rows.forEach(addRow);
+    document.getElementById("numbers").hidden = data.rows.length === 0;
+    document.getElementById("empty").hidden = data.rows.length > 0;
+  } catch {
+    message.textContent = "We could not reach the website. Please try again.";
+    message.className = "error";
+  }
+}
+
+load();
+</script>
+</body>
+</html>

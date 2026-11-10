@@ -1,0 +1,11 @@
+small_140 crops 42379 labels 18 [('rabbit', 5859), ('coyote', 4870), ('bird', 4595), ('deer', 4272), ('opossum', 3963), ('bobcat', 3254), ('raccoon', 2513), ('rodent', 2244), ('fox', 2178), ('squirrel', 2038), ('cat', 1750), ('dog', 1598), ('car', 1452), ('skunk', 1137), ('cow', 340), ('lizard', 163), ('mountain_lion', 129), ('badger', 24), ('insect', 3), ('pig', 2)]
+small_140 epoch 1: check accuracy 0.8094, 119 s
+small_140 epoch 2: check accuracy 0.8573, 236 s
+small_140 epoch 3: check accuracy 0.6544, 352 s
+small_140 epoch 4: check accuracy 0.4169, 470 s
+small_140 epoch 5: check accuracy 0.6444, 591 s
+small_140 epoch 6: check accuracy 0.8930, 722 s
+small_140 epoch 7: check accuracy 0.9398, 844 s
+small_140 epoch 8: check accuracy 0.9454, 967 s
+small_140 known_sites: accuracy 0.823, animals 0.828, macro F1 0.607, bursts 0.908, to person 0.211, when sure 0.885, bursts to person 0.224, bursts sure 0.958
+small_140 new_sites: accuracy 0.738, animals 0.724, macro F1 0.454, bursts 0.841, to person 0.296, when sure 0.834, bursts to person 0.338, bursts sure 0.943

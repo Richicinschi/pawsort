@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 TRANSITIONS = {"new": {"processing"}, "processing": {"done", "failed"}, "done": set(), "failed": set()}
 STUCK_SECONDS = 30
 PERSON = "person"
+TRAINING_ROUND = 500  # approved corrections that wait for a training: AI-09
 
 
 class InvalidTransition(Exception):
@@ -16,12 +17,16 @@ class NotOnReviewList(Exception):
     pass
 
 
+class NotWaiting(Exception):
+    pass
+
+
 def check_transition(old: str, new: str) -> None:
     if new not in TRANSITIONS.get(old, set()):
         raise InvalidTransition(f"{old} -> {new} is not allowed")
 
 
-def _now() -> str:
+def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -41,12 +46,22 @@ def connect(path: str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE jobs RENAME COLUMN image_path TO photo_name")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS reviews (job_id TEXT PRIMARY KEY REFERENCES jobs (id), old_label TEXT NOT NULL, "
-        "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL)")
+        "new_label TEXT NOT NULL, model_version TEXT, reviewed_at TEXT NOT NULL, decision TEXT, decided_at TEXT, "
+        "used_at TEXT, source TEXT NOT NULL DEFAULT 'review')")
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(reviews)")}
+    for name, kind in (("decision", "TEXT"), ("decided_at", "TEXT"), ("used_at", "TEXT"),
+                       ("source", "TEXT NOT NULL DEFAULT 'review'")):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE reviews ADD COLUMN {name} {kind}")
+    conn.execute("CREATE TABLE IF NOT EXISTS picks (week TEXT PRIMARY KEY, picked_at TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS samples (job_id TEXT PRIMARY KEY REFERENCES jobs (id), "
+                 "week TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS rare_animals (label TEXT PRIMARY KEY)")
     return conn
 
 
 def create_job(conn: sqlite3.Connection, photo_name: str, site_code: str | None = None) -> str:
-    job_id, now = str(uuid.uuid4()), _now()
+    job_id, now = str(uuid.uuid4()), utc_now()
     conn.execute("INSERT INTO jobs (id, photo_name, site_code, status, created_at, updated_at) "
                  "VALUES (?, ?, ?, 'new', ?, ?)", (job_id, photo_name, site_code, now, now))
     return job_id
@@ -63,7 +78,7 @@ def claim_job(conn: sqlite3.Connection) -> dict | None:
     try:
         row = conn.execute("SELECT id FROM jobs WHERE status = 'new' ORDER BY created_at LIMIT 1").fetchone()
         if row is not None:
-            conn.execute("UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?", (_now(), row["id"]))
+            conn.execute("UPDATE jobs SET status = 'processing', updated_at = ? WHERE id = ?", (utc_now(), row["id"]))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -78,7 +93,7 @@ def _move(conn: sqlite3.Connection, job_id: str, new_status: str, fields: dict) 
     check_transition(job["status"], new_status)
     sets = ", ".join(f"{k} = ?" for k in fields)
     moved = conn.execute(f"UPDATE jobs SET status = ?, {sets}, updated_at = ? WHERE id = ? AND status = ?",
-                         (new_status, *fields.values(), _now(), job_id, job["status"]))
+                         (new_status, *fields.values(), utc_now(), job_id, job["status"]))
     if moved.rowcount == 0:  # somebody else moved this job a moment ago
         raise InvalidTransition(f"{job['status']} -> {new_status} came too late")
 
@@ -140,19 +155,102 @@ def on_review_list(conn: sqlite3.Connection, job: dict) -> bool:
     return job["status"] == "done" and bool(job["needs_review"]) and get_review(conn, job["id"]) is None
 
 
-def save_review(conn: sqlite3.Connection, job_id: str, new_label: str) -> None:
+def save_review(conn: sqlite3.Connection, job_id: str, new_label: str, allowed=on_review_list,
+                source: str = "review") -> None:
     """Store what a person decided and change the tag in one transaction, so a job gets reviewed only once."""
     conn.execute("BEGIN IMMEDIATE")
     try:
         job = get_job(conn, job_id)
         if job is None:
             raise KeyError(job_id)
-        if not on_review_list(conn, job):
+        if not allowed(conn, job):
             raise NotOnReviewList(job_id)
-        conn.execute("INSERT INTO reviews (job_id, old_label, new_label, model_version, reviewed_at) "
-                     "VALUES (?, ?, ?, ?, ?)", (job_id, job["label"], new_label, job["model_version"], _now()))
-        conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (new_label, _now(), job_id))
+        conn.execute("INSERT INTO reviews (job_id, old_label, new_label, model_version, reviewed_at, source) "
+                     "VALUES (?, ?, ?, ?, ?, ?)",
+                     (job_id, job["label"], new_label, job["model_version"], utc_now(), source))
+        conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (new_label, utc_now(), job_id))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def corrections(conn: sqlite3.Connection) -> list[dict]:
+    """Every changed tag that waits for a decision, the oldest first. A change to person is final and never here."""
+    rows = conn.execute("SELECT job_id AS id, site_code, old_label, new_label, reviews.model_version FROM reviews "
+                        "JOIN jobs ON jobs.id = job_id WHERE new_label != old_label AND new_label != ? "
+                        "AND decision IS NULL ORDER BY reviewed_at", (PERSON,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def waits_for_decision(conn: sqlite3.Connection, job: dict) -> bool:
+    review = get_review(conn, job["id"])
+    return (review is not None and review["new_label"] not in (review["old_label"], PERSON)
+            and review["decision"] is None)
+
+
+def decide_correction(conn: sqlite3.Connection, job_id: str, decision: str) -> None:
+    """Approve or reject a correction, only once. A rejected correction was wrong, so the old label comes back."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        job = get_job(conn, job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if not waits_for_decision(conn, job):
+            raise NotWaiting(job_id)
+        conn.execute("UPDATE reviews SET decision = ?, decided_at = ? WHERE job_id = ?", (decision, utc_now(), job_id))
+        if decision == "rejected":
+            old_label = get_review(conn, job_id)["old_label"]
+            conn.execute("UPDATE jobs SET label = ?, updated_at = ? WHERE id = ?", (old_label, utc_now(), job_id))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def for_training(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute("SELECT job_id AS id, new_label AS label, reviews.model_version FROM reviews "
+                        "JOIN jobs ON jobs.id = job_id WHERE decision = 'approved' AND used_at IS NULL "
+                        "AND photo_name != '' ORDER BY decided_at").fetchall()
+    return [dict(row) for row in rows]
+
+
+def waits_for_training(conn: sqlite3.Connection, job: dict) -> bool:
+    review = get_review(conn, job["id"])
+    return review is not None and review["decision"] == "approved" and review["used_at"] is None
+
+
+def mark_used(conn: sqlite3.Connection, job_ids: list[str]) -> int:
+    """A training took these corrections. Returns how many of them really were approved and still waiting."""
+    taken = 0
+    for job_id in job_ids:
+        taken += conn.execute("UPDATE reviews SET used_at = ? WHERE job_id = ? AND decision = 'approved' "
+                              "AND used_at IS NULL", (utc_now(), job_id)).rowcount
+    return taken
+
+
+def rare_animals(conn: sqlite3.Connection) -> list[str]:
+    return [row["label"] for row in conn.execute("SELECT label FROM rare_animals ORDER BY label")]
+
+
+def set_rare(conn: sqlite3.Connection, label: str, rare: bool) -> None:
+    if rare:
+        conn.execute("INSERT OR IGNORE INTO rare_animals (label) VALUES (?)", (label,))
+    else:
+        conn.execute("DELETE FROM rare_animals WHERE label = ?", (label,))
+
+
+def tags(conn: sqlite3.Connection) -> list[dict]:
+    """Every tag for the download. A rare animal has no camera site and no time, and the rows come in the order
+    of the job numbers, so the rows of the same upload next to it cannot give its site away: FR-18."""
+    rare = set(rare_animals(conn))
+    rows = conn.execute("SELECT id, site_code, label, probability, needs_review = 1 AND job_id IS NULL "
+                        "AS needs_review, job_id IS NOT NULL AS checked, jobs.model_version, created_at FROM jobs "
+                        "LEFT JOIN reviews ON job_id = id WHERE status = 'done' ORDER BY id").fetchall()
+    found = []
+    for row in rows:
+        tag = {**dict(row), "needs_review": bool(row["needs_review"]), "checked": bool(row["checked"])}
+        if tag["label"] in rare:
+            tag.update(site_code=None, created_at=None)
+        found.append(tag)
+    return found

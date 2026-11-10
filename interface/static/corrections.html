@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PawSort corrections</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1f; background: #f4f1ea; }
+  h1 { color: #1a1a1f; margin-bottom: 0.25rem; }
+  a { color: #1a1a1f; text-decoration: underline; }
+  #who { color: #55545f; font-size: 0.95rem; }
+  #note { font-weight: 600; }
+  #jobs { list-style: none; padding: 0; }
+  #jobs li { background: #fffdf8; border: 1px solid #d9d4c7; border-left: 0.4rem solid #ffc21a; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.6rem; }
+  #jobs img { display: block; max-width: 100%; border-radius: 0.3rem; margin-bottom: 0.5rem; }
+  #jobs p { margin: 0; font-weight: 600; }
+  #jobs small { display: block; color: #55545f; margin-bottom: 0.5rem; }
+  button { font: inherit; font-weight: 600; color: #fff; background: #1a1a1f; border: 0; border-radius: 0.4rem; padding: 0.4rem 1rem; cursor: pointer; }
+  .error { color: #b3261e; }
+</style>
+</head>
+<body>
+<h1>Corrections</h1>
+<p>A person changed the label of these jobs. Look at the photo and decide. Approve the correction if the new label is right, then the next training can learn from it. Reject it if the new label is wrong, then the job gets its old label back. The oldest correction is on top.</p>
+<p id="who">This page is meant for the coordinator. There is no login yet, so everybody can use it. We show a photo here only while its correction waits for a decision.</p>
+<p><a href="/">Back to the upload page</a></p>
+<p id="note"></p>
+<p id="message"></p>
+<p id="empty" hidden>No correction waits for a decision right now.</p>
+<ul id="jobs"></ul>
+<script>
+const jobs = document.getElementById("jobs");
+const note = document.getElementById("note");
+const message = document.getElementById("message");
+const empty = document.getElementById("empty");
+const noServer = "We could not reach the website. Please try again.";
+
+function say(text, style = "") {
+  message.textContent = text;
+  message.className = style;
+}
+
+async function send(job, decision, line) {
+  say("");
+  try {
+    const reply = await fetch(`/corrections/${job.job_id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    });
+    const data = await reply.json();
+    if (!reply.ok) { say(data.detail, "error"); return load(); }
+    note.textContent = data.note;
+    line.remove();
+    empty.hidden = jobs.children.length > 0;
+  } catch {
+    say(noServer, "error");
+  }
+}
+
+function button(text, click) {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.textContent = text;
+  item.addEventListener("click", click);
+  return item;
+}
+
+function photo(job) {
+  const picture = document.createElement("img");
+  picture.alt = `Photo of job ${job.job_id.slice(0, 8)}`;
+  picture.loading = "lazy";
+  picture.src = `/corrections/${job.job_id}/photo`;
+  picture.addEventListener("error", () => picture.replaceWith("We have no photo for this job."));
+  return picture;
+}
+
+function addJob(job) {
+  const line = document.createElement("li");
+  const text = document.createElement("p");
+  text.textContent = `Job ${job.job_id.slice(0, 8)}, camera site ${job.site_code}: the model said ${job.old_label}, a person changed it to ${job.new_label}.`;
+  const more = document.createElement("small");
+  more.textContent = `Tagged by model version ${job.model_version}.`;
+  line.append(photo(job), text, more, button("Approve", () => send(job, "approved", line)), " ", button("Reject", () => send(job, "rejected", line)));
+  jobs.append(line);
+}
+
+async function load() {
+  try {
+    const reply = await fetch("/corrections/jobs");
+    const data = await reply.json();
+    if (!reply.ok) return say(data.detail, "error");
+    note.textContent = data.note;
+    jobs.replaceChildren();
+    for (const job of data.jobs) addJob(job);
+    empty.hidden = data.jobs.length > 0;
+  } catch {
+    say(noServer, "error");
+  }
+}
+
+load();
+</script>
+</body>
+</html>

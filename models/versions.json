@@ -1,0 +1,41 @@
+{
+  "current": "wildlife-1.0",
+  "previous": null,
+  "versions": {
+    "wildlife-1.0": {
+      "trained_on": "2026-11-06",
+      "training_data": "42379 crops from 130 camera sites, 18 labels, 8 epochs",
+      "report": {
+        "accuracy_known_sites": 0.8234,
+        "accuracy_new_sites": 0.7383,
+        "accuracy_when_sure": 0.8852,
+        "sure_known_sites": 0.7895,
+        "sure_new_sites": 0.7036,
+        "animals_called_empty_known_sites": 0.0991,
+        "animals_called_empty_new_sites": 0.1243,
+        "lowest_recall_known_sites": 0.5,
+        "lowest_recall_new_sites": 0.19
+      },
+      "label_crops": {
+        "rabbit": 5859,
+        "coyote": 4870,
+        "bird": 4595,
+        "deer": 4272,
+        "opossum": 3963,
+        "bobcat": 3254,
+        "raccoon": 2513,
+        "rodent": 2244,
+        "fox": 2178,
+        "squirrel": 2038,
+        "cat": 1750,
+        "dog": 1598,
+        "car": 1452,
+        "skunk": 1137,
+        "cow": 340,
+        "lizard": 163,
+        "mountain_lion": 129,
+        "badger": 24
+      }
+    }
+  }
+}
