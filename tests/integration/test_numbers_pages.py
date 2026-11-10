@@ -22,6 +22,12 @@ def photo() -> bytes:
 
 
 @pytest.fixture
+def orch_client(tmp_path, photos):
+    """A middle server that knows no training date, so no camera site counts as new."""
+    return TestClient(create_app(str(tmp_path / "jobs.db"), str(photos), versions_path=str(tmp_path / "no.json")))
+
+
+@pytest.fixture
 def ui(orch_client):
     return TestClient(create_website(orch_client))
 

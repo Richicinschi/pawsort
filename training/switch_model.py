@@ -131,7 +131,7 @@ def switch(folder: str, models: str = "models") -> str:
     keep(folder, kept, FILES + EXTRA)
     put_in_place(kept, models)  # a stop from here on is mended by running the same command again
     versions["versions"][version] = {"trained_on": run["trained_on"], "training_data": training_data,
-                                     "report": report}
+                                     "report": report, "label_crops": run.get("label_crops")}
     versions.update(current=version, previous=current)
     write_versions(models, versions)
     return f"Switched from {current} to {version}. {RESTART}"

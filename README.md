@@ -62,7 +62,7 @@ An older `data/pawsort.db` gets the new column by itself when the middle server 
 
 ## Switching to a new model
 
-`models/versions.json` has one entry for every model version: the training date, one line about the training data, the file names and the test report. The test report holds the numbers we check our targets with: the accuracy on known and on new sites, the accuracy on the sure tags, the share of sure tags, the share of animals called empty, and the lowest recall of a label with 500 or more training crops. The entry of the current model comes from `results.json`. Two things are not in `results.json`, so they are empty: the training date, and the lowest recall, because `results.json` does not say how many training crops each label had.
+`models/versions.json` has one entry for every model version: the training date, one line about the training data, the file names and the test report. The test report holds the numbers we check our targets with: the accuracy on known and on new sites, the accuracy on the sure tags, the share of sure tags, the share of animals called empty, and the lowest recall of a label with 500 or more training crops. The entry of the current model comes from `results.json` and from the log of its training, `training/logs/wildlife-1.0.log`. The log has the number of training crops per label, and the entry keeps these numbers as `label_crops`, so everybody can check which labels have 500 or more.
 
 A new model only goes live through this script:
 
@@ -70,7 +70,7 @@ A new model only goes live through this script:
 python training/switch_model.py data/new_model
 ```
 
-The folder holds `pawsort_wildlife.pt`, `labels.json`, `model_version.txt`, `report.json` and `training_data.txt`. `training/README.md` says what goes into them. The script compares the new report with the current one, target by target. If the new model is worse on one target, the script refuses, names that target with both numbers and changes nothing. A target that only one of the two models measured cannot be compared, so the script refuses then too. When it accepts, it keeps the files of the old and of the new version in `models/versions`, puts the new model in place and adds its entry to `versions.json`.
+The folder holds `pawsort_wildlife.pt`, `labels.json`, `model_version.txt`, `report.json` and `training_data.txt`. `training/train.py --save` writes exactly these five files. The script compares the new report with the current one, target by target. If the new model is worse on one target, the script refuses, names that target with both numbers and changes nothing. A target that only one of the two models measured cannot be compared, so the script refuses then too. When it accepts, it keeps the files of the old and of the new version in `models/versions`, puts the new model in place and adds its entry to `versions.json`.
 
 ```
 python training/switch_model.py --back
@@ -114,7 +114,7 @@ The corrections page also counts the approved corrections that wait for a traini
 
 http://127.0.0.1:8000/numbers has a table with one row per camera site and week: the tags the model gave, the share that needed review, and the share of the checked tags that a person corrected. A week runs from Monday to Sunday and goes by the day of the upload, in UTC. A rejected correction does not count as corrected. A site and week with more than 40% needs review gets a warning on top of the page.
 
-The page also has a box "Time to plan a training round". It lists every reason that holds: 500 approved corrections wait for a training, a camera site sent its first photo after the current model was trained, or a site got a warning. The middle server reads the training date from `models/versions.json`, and `PAWSORT_VERSIONS` moves that file. The model in the repo has no training date there yet. Until somebody fills it in, the page says that it cannot tell which camera sites are new.
+The page also has a box "Time to plan a training round". It lists every reason that holds: 500 approved corrections wait for a training, a camera site sent its first photo after the current model was trained, or a site got a warning. The middle server reads the training date from `models/versions.json`, and `PAWSORT_VERSIONS` moves that file. When that file has no training date, the page says that it cannot tell which camera sites are new.
 
 ## Weekly sample
 
@@ -133,6 +133,19 @@ http://127.0.0.1:8000/rare has the list of rare animals. An animal can be added 
 http://127.0.0.1:8000/download gives all tags as a CSV file, `pawsort-tags.csv`. It has one row for every job that is done: the job number, the camera site, the label, the percentage, if the tag still needs review, if a person checked it, the model version and the time of the upload. When a user changed a tag, the label is the one the user picked. The percentage is always the one of the model. For a rare animal the camera site and the time of the upload stay empty, and the rows are in the order of the job numbers, which are random, and not in the order of the uploads. Otherwise the rows next to a rare animal, from the same upload, would give its camera site away. The middle server already leaves the site code and the time out, so they never reach the website. A text cell that starts with =, +, - or @ gets a ' in front, so a spreadsheet does not read a site code like -A12 as a formula. The upload page has a link to the download.
 
 On the pages everybody still sees the camera site of every tag, also of a rare animal. Hiding it from volunteers needs a login, and the login is not built.
+
+## From a correction to a new model
+
+This is the whole loop, in order. Steps 3 to 6 run from the main folder of the project.
+
+1. A user corrects a tag on the review list or in the weekly sample.
+2. The coordinator approves the correction on http://127.0.0.1:8000/corrections.
+3. `python training/export_corrections.py --out data/corrections` fetches the approved corrections with their photos. The middle server has to be up.
+4. `python training/correction_crops.py --corrections data/corrections` cuts the animal out of every photo, the same way the AI server does it, and gives the crop the corrected label. A photo without a box of at least 0.2 is skipped, and so is a correction to empty, because our MobileNet never learns empty. The script says how many it used and how many it skipped.
+5. `python training/train.py --data data --cache data/cache --corrections data/corrections --save data/new_model --version wildlife-1.1` trains on the old crops plus the corrections and writes a new model into `data/new_model`. It never writes into `models`, and it refuses when you ask for that.
+6. `python training/switch_model.py data/new_model` puts the new model in place, but only when it scores at least as well as the current one on every target. Otherwise it says which target is worse and changes nothing.
+7. Start the AI server again, because it reads the model when it starts.
+8. If the new model turns out bad, `python training/switch_model.py --back` puts the version before in place again. Then start the AI server again.
 
 ## When something goes wrong
 
