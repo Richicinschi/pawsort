@@ -8,8 +8,8 @@ from orchestrator.app import create_app
 
 
 @pytest.fixture
-def claimed_job(orch_client):
-    job_id = orch_client.post("/jobs", json={"image_path": "/x/cat.jpg"}).json()["id"]
+def claimed_job(orch_client, send_photo):
+    job_id = send_photo(orch_client)
     orch_client.post("/jobs/claim")
     return job_id
 
@@ -24,26 +24,26 @@ def second_guess(orch, job_id):
     return job["second_label"], job["second_probability"]
 
 
-def test_job_row_keeps_the_second_guess_of_the_worker(orch_client, copy_photo):
-    job_id = orch_client.post("/jobs", json={"image_path": copy_photo("bobcat_1.jpg")}).json()["id"]
+def test_job_row_keeps_the_second_guess_of_the_worker(orch_client, send_photo, work):
+    job_id = send_photo(orch_client)
 
-    process_one(orch_client, lambda image: {"raccoon": 0.57, "cat": 0.12, "skunk": 0.21})
+    process_one(orch_client, lambda image: {"raccoon": 0.57, "cat": 0.12, "skunk": 0.21}, work)
 
     assert second_guess(orch_client, job_id) == ("skunk", 0.21)
 
 
-def test_job_row_of_an_empty_photo_has_no_second_guess(orch_client, copy_photo):
-    job_id = orch_client.post("/jobs", json={"image_path": copy_photo("empty_1.jpg")}).json()["id"]
+def test_job_row_of_an_empty_photo_has_no_second_guess(orch_client, send_photo, work):
+    job_id = send_photo(orch_client, "empty_1.jpg")
 
-    process_one(orch_client, lambda image: {"empty": 1.0})
+    process_one(orch_client, lambda image: {"empty": 1.0}, work)
 
     assert second_guess(orch_client, job_id) == (None, None)
 
 
-def test_failed_job_has_no_second_guess(orch_client, copy_photo):
-    job_id = orch_client.post("/jobs", json={"image_path": copy_photo("not_an_image.jpg")}).json()["id"]
+def test_failed_job_has_no_second_guess(orch_client, send_photo, work):
+    job_id = send_photo(orch_client, "not_an_image.jpg")
 
-    process_one(orch_client, lambda image: {"raccoon": 0.57, "skunk": 0.21})
+    process_one(orch_client, lambda image: {"raccoon": 0.57, "skunk": 0.21}, work)
 
     assert second_guess(orch_client, job_id) == (None, None)
 
@@ -74,7 +74,7 @@ def test_second_guess_without_its_score_is_refused(orch_client, claimed_job):
     assert orch_client.get(f"/jobs/{claimed_job}").json()["status"] == "processing"
 
 
-def test_middle_server_works_on_a_database_from_before_these_columns(tmp_path):
+def test_middle_server_works_on_a_database_from_before_these_columns(tmp_path, send_photo):
     path = str(tmp_path / "old.db")
     old = sqlite3.connect(path)
     old.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY, image_path TEXT NOT NULL, status TEXT NOT NULL, label TEXT, "
@@ -85,11 +85,11 @@ def test_middle_server_works_on_a_database_from_before_these_columns(tmp_path):
     old.commit()
     old.close()
 
-    orch = TestClient(create_app(path))
+    orch = TestClient(create_app(path, str(tmp_path / "photos")))
 
     assert second_guess(orch, "old-job") == (None, None)
     assert orch.get("/review").json()["jobs"][0]["second_label"] is None
-    job_id = orch.post("/jobs", json={"image_path": "/x/new.jpg"}).json()["id"]
+    job_id = send_photo(orch)
     orch.post("/jobs/claim")
     report(orch, job_id, second_label="skunk", second_probability=0.21)
     assert second_guess(orch, job_id) == ("skunk", 0.21)

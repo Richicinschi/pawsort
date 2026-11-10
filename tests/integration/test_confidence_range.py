@@ -2,8 +2,8 @@ import pytest
 
 
 @pytest.fixture
-def claimed_job(orch_client):
-    job_id = orch_client.post("/jobs", json={"image_path": "/x/cat.jpg"}).json()["id"]
+def claimed_job(orch_client, send_photo):
+    job_id = send_photo(orch_client)
     orch_client.post("/jobs/claim")
     return job_id
 

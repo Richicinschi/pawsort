@@ -1,4 +1,4 @@
-import shutil
+import os
 import threading
 from collections import Counter
 
@@ -14,21 +14,20 @@ def stand_in(image):
     return {"bobcat": 0.9, "coyote": 0.1}
 
 
-def test_two_workers_at_once_do_every_job_exactly_once(tmp_path, copy_photo):
-    app = create_app(str(tmp_path / "jobs.db"))
+def test_two_workers_at_once_do_every_job_exactly_once(tmp_path, send_photo):
+    app = create_app(str(tmp_path / "jobs.db"), str(tmp_path / "photos"))
     orch = TestClient(app)
-    jobs = []
-    for number in range(JOBS):
-        photo = shutil.copy(copy_photo("bobcat_1.jpg"), tmp_path / f"{number}.jpg")
-        jobs.append(orch.post("/jobs", json={"image_path": str(photo)}).json()["id"])
+    jobs = [send_photo(orch) for _ in range(JOBS)]
     start = threading.Barrier(2)
     handled, errors = Counter(), []
 
     def work(name):
         client = TestClient(app)
+        folder = tmp_path / name
+        folder.mkdir()
         start.wait()
         try:
-            while process_one(client, stand_in, name):
+            while process_one(client, stand_in, str(folder), name):
                 handled[name] += 1
         except Exception as exc:
             errors.append(exc)
@@ -45,3 +44,5 @@ def test_two_workers_at_once_do_every_job_exactly_once(tmp_path, copy_photo):
     assert handled["worker-1"] + handled["worker-2"] == JOBS  # as many claims as jobs, so no job went out twice
     assert Counter(row["model_version"] for row in rows) == handled
     assert handled["worker-1"] and handled["worker-2"]
+    assert os.listdir(tmp_path / "worker-1") == os.listdir(tmp_path / "worker-2") == []
+    assert len(os.listdir(tmp_path / "photos")) == JOBS
