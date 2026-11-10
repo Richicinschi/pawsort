@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from ai_server import detector
 from ai_server.logic import decide
-from ai_server.model import crop_to_box, load_model, predict_scores, preprocess
+from ai_server.model import crop_to_box, load_model, predict_scores, preprocess, read_version
 from ai_server.worker import process_one
 from interface.app import create_app
 
@@ -29,6 +29,13 @@ def test_real_photo_through_both_models(orch_client, copy_photo, predict, photo,
     job_id = orch_client.post("/jobs", json={"image_path": copy_photo(photo)}).json()["id"]
     process_one(orch_client, predict)
     assert orch_client.get(f"/jobs/{job_id}").json()["label"] == label
+
+
+def test_real_model_reports_the_version_next_to_it(orch_client, copy_photo, predict):
+    version = read_version("models/pawsort_wildlife.pt")
+    job_id = orch_client.post("/jobs", json={"image_path": copy_photo("bobcat_1.jpg")}).json()["id"]
+    process_one(orch_client, predict, version)
+    assert orch_client.get(f"/jobs/{job_id}").json()["model_version"] == version
 
 
 def test_upload_on_the_website_to_answer_on_the_page(orch_client, tmp_path, predict):
