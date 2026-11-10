@@ -2,7 +2,7 @@
 from megadetector.detection.run_detector import load_detector
 from PIL import Image
 
-MIN_CONFIDENCE = 0.2
+WEAK_BOX = 0.05  # we also want the weak boxes, logic.py decides what they mean
 
 
 def load():
@@ -10,7 +10,7 @@ def load():
 
 
 def find(detector, image: Image.Image) -> dict | None:
-    result = detector.generate_detections_one_image(image.convert("RGB"), "photo", detection_threshold=MIN_CONFIDENCE)
+    result = detector.generate_detections_one_image(image.convert("RGB"), "photo", detection_threshold=WEAK_BOX)
     if result.get("failure"):
         raise RuntimeError(result["failure"])
     found = result.get("detections") or []
