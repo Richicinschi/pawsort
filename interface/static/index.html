@@ -46,7 +46,8 @@
   <button type="submit" id="send">Upload photos</button>
   <p id="notice">We keep your photos on our server, because a person may have to look at a photo to check its tag, and because the next training of the model needs them. The model only gets a copy, and that copy is deleted right after the check, also when the check fails. A photo that shows a person is deleted at once, whatever the percentage is, and also when somebody picks person on the review list. A photo that we could not check is deleted too. We do not store names or contact details, and we remove the location data before we keep a photo. The small pictures below come from your own computer, not from us.</p>
 </form>
-<p><a href="/review">See the jobs that need review</a></p>
+<p id="pages"><a href="/review">See the jobs that need review</a><br>
+<a href="/corrections">Approve or reject corrections</a></p>
 <p id="message" class="error"></p>
 <p id="summary" aria-live="polite" hidden></p>
 <ul id="results"></ul>

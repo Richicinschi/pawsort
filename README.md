@@ -24,7 +24,7 @@ python run_all.py
 
 Then open http://127.0.0.1:8000, fill in a camera site code, drop your photos on the box or click it to pick them, and press Upload photos. Ctrl+C stops all three servers.
 
-Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user. The website only sends a photo back on the review list.
+Every photo gets a line with a small picture, the answer and the file name, and the row above the list counts the answers. The small pictures come from the browser of the user. The website only sends a photo back on the review list and on the corrections page.
 
 The first photo can take a while, because the AI server loads the detector first. It can download the detector the very first time. Until then the page says "Still working...".
 
@@ -71,6 +71,22 @@ The list shows the photo of every job, with the job, the camera site, the label 
 The AI server also reports its second guess. That is the next most likely label of our MobileNet, with its score. Empty, person and a weak box have no second guess, because our MobileNet does not run for them. The middle server keeps the second guess in the job row, and an older `data/pawsort.db` gets the two new columns by itself.
 
 When a tag needs review, the page says why in one sentence that names the animal and the 80%, and then shows the second guess. For example: "The model is less than 80% sure this is a raccoon. Its second guess is a skunk, 21% sure." A photo with only a weak box gets its own sentence: "The model saw something in this photo, but not clearly enough to say what it is." The website server makes these sentences, so unit tests check the exact words.
+
+## Corrections
+
+When a user picks another label on the review list, that is a correction, and it waits for a decision. A confirmation needs no decision. A change to person is final, because that photo is gone.
+
+http://127.0.0.1:8000/corrections lists every correction that waits, the oldest first, with the photo, the old label, the new label and the model version. Approve keeps the new label. Reject puts the old label back on the job, because then the correction was wrong. A correction gets one decision, and a second one is refused. The page is meant for the coordinator. There is no login yet, so everybody can use it, and the page says so.
+
+Only approved corrections go to the next training. Run this from the main folder of the project, with the middle server up:
+
+```
+python training/export_corrections.py --out data/corrections
+```
+
+The script asks the middle server for the approved corrections that no training took yet. It saves each photo in the folder and writes `corrections.csv` with the job, the photo file, the right label and the model version. Then it tells the middle server which ones it took, so the next run does not fetch them again. A correction that still waits or that got rejected can never be in that folder. A correction without a photo is left out.
+
+The corrections page also counts the approved corrections that wait for a training. At 500 it says that it is time to plan a training round.
 
 ## When something goes wrong
 
