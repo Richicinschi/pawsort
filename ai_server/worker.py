@@ -76,11 +76,17 @@ def main() -> None:
             return predict_scores(model, labels, preprocess(crop_to_box(image, box)))
         return decide(detector.find(finder, image), classify)
 
+    mode = os.environ.get("PAWSORT_MODE", "poll")
     base = os.environ.get("PAWSORT_ORCH", "http://127.0.0.1:8001")
-    with httpx.Client(base_url=base, timeout=10) as client:
-        print(f"AI server polling {base} with model {model_version}")
-        while True:
-            poll(client, predict, work_dir, model_version)
+    
+    if mode == "ws":
+        ws_url = os.environ.get("PAWSORT_WS", base.replace("http", "ws", 1) + "/ws/worker")
+        run_ws(predict, work_dir, model_version, ws_url)
+    else:
+        with httpx.Client(base_url=base, timeout=10) as client:
+            print(f"AI server polling {base} with model {model_version}")
+            while True:
+                poll(client, predict, work_dir, model_version)
 
 
 if __name__ == "__main__":
